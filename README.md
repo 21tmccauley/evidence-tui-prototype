@@ -36,6 +36,18 @@ go run . \
 The app checks for local tools used by live runs: `aws`, `jq`, `bash`,
 `python3`, `kubectl`, and `curl`.
 
+### KnowBe4 Scans
+
+Before starting the TUI, export your KnowBe4 API key in the same shell:
+
+```sh
+export KNOWBE4_API_KEY="your-knowbe4-api-key"
+go run . --demo=false --fetcher-repo-root ../evidence-fetchers
+```
+
+The key is read from the environment and passed to the KnowBe4 fetcher scripts.
+Do not commit real API keys to this repo.
+
 ## Flags
 
 `--demo`
