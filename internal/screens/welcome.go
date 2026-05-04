@@ -145,16 +145,9 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 				return m, nil
 			}
 			p := m.profiles[m.cursor]
-			if m.credential == nil {
-				return m, func() tea.Msg {
-					return SelectedProfileMsg{Profile: p}
-				}
+			return m, func() tea.Msg {
+				return SelectedProfileMsg{Profile: p}
 			}
-			m.checking = true
-			m.statusError = false
-			m.ssoReady = false
-			m.status = fmt.Sprintf("checking AWS credentials for %s", p.Name)
-			return m, m.checkProfileCmd(p)
 		case msg.String() == "o":
 			if !m.ssoReady || m.busy() || len(m.profiles) == 0 {
 				return m, nil
@@ -272,7 +265,7 @@ func (m WelcomeModel) View() string {
 
 	hints := []components.Hint{
 		{Key: "↑/↓", Desc: "move"},
-		{Key: "enter", Desc: "check"},
+		{Key: "enter", Desc: "continue"},
 	}
 	if m.ssoReady {
 		hints = append(hints, components.Hint{Key: "o", Desc: "sso login"})
@@ -296,7 +289,7 @@ func (m WelcomeModel) statusView(width int) string {
 			)
 		}
 		return "\n" + lipgloss.PlaceHorizontal(width, lipgloss.Center,
-			app.StyleSubtle.Render("press enter to verify AWS credentials before continuing"),
+			app.StyleSubtle.Render("press enter to continue; credentials are checked for selected fetchers"),
 		)
 	}
 	style := app.StyleInfo

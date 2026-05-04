@@ -31,8 +31,8 @@ func (w *welcomeLogin) LoginAWS(context.Context, string) error {
 	return w.err
 }
 
-func TestWelcomeChecksCredentialsBeforeSelection(t *testing.T) {
-	checker := &welcomeChecker{}
+func TestWelcomeContinuesWithoutCredentialCheck(t *testing.T) {
+	checker := &welcomeChecker{err: errors.New("not signed in")}
 	m := NewWelcomeWithOptions(app.DefaultKeys(), WelcomeOptions{
 		Profiles: []Profile{{Name: "prod", Region: "us-east-1"}},
 		Credential: &preflight.Service{
@@ -43,27 +43,26 @@ func TestWelcomeChecksCredentialsBeforeSelection(t *testing.T) {
 	var cmd tea.Cmd
 	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
-		t.Fatal("enter should start credential check")
-	}
-	checkMsg := cmd()
-	m, cmd = m.Update(checkMsg)
-	if checker.calls != 1 {
-		t.Fatalf("credential checker calls: got %d want 1", checker.calls)
+		t.Fatal("enter should continue")
 	}
 	selected, ok := cmd().(SelectedProfileMsg)
 	if !ok {
-		t.Fatalf("expected SelectedProfileMsg after successful check")
+		t.Fatalf("expected SelectedProfileMsg")
 	}
 	if selected.Profile.Name != "prod" {
 		t.Fatalf("selected profile: got %#v", selected.Profile)
+	}
+	if checker.calls != 0 {
+		t.Fatalf("welcome should not force AWS credential check, calls=%d", checker.calls)
 	}
 }
 
 func TestWelcomeSSOLoginRetriesCredentialCheck(t *testing.T) {
 	checker := &welcomeChecker{err: errors.New("aws sts: SSO session has expired")}
 	login := &welcomeLogin{}
+	profile := Profile{Name: "prod", Region: "us-east-1"}
 	m := NewWelcomeWithOptions(app.DefaultKeys(), WelcomeOptions{
-		Profiles: []Profile{{Name: "prod", Region: "us-east-1"}},
+		Profiles: []Profile{profile},
 		Credential: &preflight.Service{
 			Checker: checker,
 			Login:   login,
@@ -71,8 +70,13 @@ func TestWelcomeSSOLoginRetriesCredentialCheck(t *testing.T) {
 	})
 
 	var cmd tea.Cmd
-	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	m, cmd = m.Update(cmd())
+	m, cmd = m.Update(profileCheckDoneMsg{
+		profile: profile,
+		result: preflight.Result{
+			Err:      checker.err,
+			SSOError: true,
+		},
+	})
 	if cmd != nil {
 		t.Fatal("failed credential check should not advance")
 	}
@@ -93,8 +97,8 @@ func TestWelcomeSSOLoginRetriesCredentialCheck(t *testing.T) {
 		t.Fatal("successful login should retry credential check")
 	}
 	m, cmd = m.Update(cmd())
-	if checker.calls != 2 {
-		t.Fatalf("credential checker calls after retry: got %d want 2", checker.calls)
+	if checker.calls != 1 {
+		t.Fatalf("credential checker calls after retry: got %d want 1", checker.calls)
 	}
 	if _, ok := cmd().(SelectedProfileMsg); !ok {
 		t.Fatalf("expected SelectedProfileMsg after successful retry")

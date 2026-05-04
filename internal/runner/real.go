@@ -285,6 +285,14 @@ func (r *RealRunner) execute(id FetcherID, runIdx int) {
 		})
 		return
 	}
+	if (script.Source == "knowbe4" || inst.Provider == "knowbe4") && !hasNonEmptyEnv(r.cfg.environment(), inst.Env, "KNOWBE4_API_KEY") {
+		r.finish(id, runIdx, FinishedMsg{
+			ID:          id,
+			Status:      StatusFailed,
+			ErrorReason: "KnowBe4 API key missing; set KNOWBE4_API_KEY",
+		})
+		return
+	}
 
 	var stdoutF, stderrF *os.File
 	defer func() {
@@ -530,6 +538,21 @@ func (r *RealRunner) preflightOK(profile, region string) bool {
 	r.awsAuthOK[key] = ok
 	r.mu.Unlock()
 	return ok
+}
+
+func hasNonEmptyEnv(base []string, overrides map[string]string, key string) bool {
+	if overrides != nil {
+		if v, ok := overrides[key]; ok {
+			return strings.TrimSpace(v) != ""
+		}
+	}
+	prefix := key + "="
+	for i := len(base) - 1; i >= 0; i-- {
+		if strings.HasPrefix(base[i], prefix) {
+			return strings.TrimSpace(strings.TrimPrefix(base[i], prefix)) != ""
+		}
+	}
+	return false
 }
 
 func syncCloseLogFile(f *os.File) {
