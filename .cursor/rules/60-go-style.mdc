@@ -1,0 +1,35 @@
+---
+description: Go conventions, lint expectations, and review gates
+globs: **/*.go
+alwaysApply: false
+---
+
+# Go style
+
+## Lint and static analysis
+
+- `go vet ./...` clean on every PR.
+- `staticcheck ./...` clean on every PR.
+- `gosec ./...` clean for `internal/secrets/`, `internal/uploader/`, `internal/runner/`. Findings in those packages are PR blockers unless explicitly waived in review.
+
+## Style
+
+- No mutable package globals. Pass config and context through constructors.
+- Wrap errors with `fmt.Errorf("...: %w", err)`; never `%v` for an error you intend to expose.
+- Subprocess invocation uses `exec.CommandContext`, never `exec.Command`, so timeouts and cancels actually take effect.
+- Goroutines that read pipes own a `done` channel; the runner's cleanup waits on it. No goroutines spawned inside a screen's `Update`.
+
+## Tests
+
+- Drive screens by calling `Update` directly with synthetic messages.
+- Snapshot renders with `github.com/bradleyjkemp/cupaloy` at fixed sizes (80x24 and 200x60).
+- Mock runner replays recorded fixtures from `testdata/recorded/<EVD-*>.{stdout,json}` so CI is deterministic without AWS / Paramify creds.
+
+## Two-approval areas
+
+PRs touching the following require two approvals:
+
+- `internal/secrets/` — credential handling
+- `internal/uploader/` — Paramify API
+- `internal/runner/real.go` — subprocess execution (RCE surface)
+- Anything that materially changes behavior cited in [DESIGN.md](../../DESIGN.md) Part 3.

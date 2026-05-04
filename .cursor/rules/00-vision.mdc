@@ -1,0 +1,29 @@
+---
+description: Non-negotiable vision and constraints for the evidence TUI
+alwaysApply: true
+---
+
+# Evidence TUI vision
+
+This Go/Bubble Tea app is a **visual wrapper** that orchestrates the existing fetcher scripts in `evidence-fetchers/`. The fetcher scripts (bash + python) are the durable contract. We move *orchestration* into Go; we do not rewrite fetchers.
+
+## Hard rules
+
+- **`evidence-fetchers/` is read-only reference.** Do not edit, move, or delete any file under that directory from this project. It mirrors the customer-shipped behavior we must preserve. If a behavior needs to change, propose it in a follow-up that targets `evidence-fetchers/` directly.
+- **The catalog (`evidence_fetchers_catalog.json`) is the contract.** `EVD-<CATEGORY>-<NAME>` IDs are forever-stable; renaming or regenerating them creates duplicate Evidence Sets in customer tenants.
+- **The TUI never embeds business logic that lives in a fetcher script.** If a check belongs in a script, it stays there.
+- **Onboarding parity is required.** Every preflight the Python flow does (tool checks, AWS `sts get-caller-identity`, AWS post-flight `metadata.account_id != "unknown"`, Paramify token sanity) has a Go equivalent surfaced on the Prerequisites screen.
+
+## What "wrapper" means in practice
+
+- The Go runner invokes scripts unmodified via `exec.CommandContext`.
+- The Go uploader speaks Paramify HTTP directly so we don't ship Python at runtime, but preserves the idempotency and dedup semantics of `paramify_pusher.py`.
+- The Go preflight runs the same auth checks the Python flow runs.
+- Outputs (`evidence/<ts>/summary.json`, `upload_log.json`) stay byte-compatible with the Python format during cutover.
+
+## Required reading before non-trivial changes
+
+- [DESIGN.md](../../DESIGN.md) Part 3 — assurances we MUST preserve
+- [DESIGN.md](../../DESIGN.md) Part 7 — phased integration plan
+
+If a change conflicts with these rules, stop and ask.

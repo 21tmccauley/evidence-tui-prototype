@@ -1,0 +1,24 @@
+---
+description: MVP uploader boundary - Go bridges to existing Python uploader
+globs: internal/uploader/**/*.go
+alwaysApply: false
+---
+
+# Uploader contract
+
+MVP upload is delegated to the existing Python uploader:
+`../../../evidence-fetchers/2-create-evidence-sets/paramify_pusher.py`.
+
+The Go TUI owns wiring and status display. Python owns Paramify API semantics.
+
+## MVP bridge
+
+- `internal/uploader/python.go` shells out to `paramify_pusher.py`.
+- Invoke it with `<run-dir>/summary.json` and `--log-file <run-dir>/upload_log.json`.
+- Run with CWD set to the `evidence-fetchers` repo root so `.env` and root `evidence_sets.json` behavior match Python.
+- Do not read or log `PARAMIFY_UPLOAD_API_TOKEN` in Go for the MVP path; let Python load env / `.env`.
+- Surface subprocess success/failure through the Review screen without exposing secrets.
+
+## Go Paramify client
+
+`internal/uploader/paramify.go` is post-MVP / experimental. Do not expand or rewire it into real mode unless the team explicitly decides to replace the Python upload path.

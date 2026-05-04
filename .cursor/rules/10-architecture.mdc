@@ -1,0 +1,41 @@
+---
+description: Layered architecture and message-bus discipline for the Go TUI
+globs: **/*.go
+alwaysApply: false
+---
+
+# Architecture
+
+Layers (top imports down only, never sideways or up):
+
+```
+TUI screens (presentation only)
+  catalog · runner · uploader · preflight     (domain)
+  presets · secrets · evidence · profiles
+  exec · filesystem · keychain · http         (adapters)
+```
+
+## Rules
+
+- **Screens import only domain interfaces.** Never import an adapter (e.g. `runner/real.go`, `uploader/paramify.go`) from a screen package.
+- **One model per screen.** Screens do not import each other. Cross-screen handoff is via typed messages on the root bus (e.g. `SelectionConfirmedMsg`, `RunCompleteMsg`).
+- **Adapters live behind interfaces.** `runner.Runner`, `uploader.Uploader`, `secrets.Store`, etc. The root model wires concrete implementations at startup (`--demo` swaps mock for real).
+- **Runner state machine, not loose goroutines from screens.** Every script "beat" is a `tea.Cmd` returning a `tea.Msg`. Use a per-fetcher `runIdx` counter so retries/cancels invalidate stale messages. Goroutines for pipe reads live inside the runner adapter — never inside a screen `Update`.
+- **No mutable package globals.** Pass config and context via constructors.
+- **Demo and real must be indistinguishable to screens.** If a screen behaves differently in `--demo` vs real, that's a bug.
+
+## Examples
+
+GOOD: screen takes interfaces.
+
+```go
+func NewRun(keys app.KeyMap, profile string, ids []FetcherID, r runner.Runner) RunModel
+```
+
+BAD: screen reaches into a concrete adapter.
+
+```go
+import "github.com/paramify/evidence-tui-prototype/internal/runner/real"
+
+func NewRun(...) { r := real.New(...); ... }
+```

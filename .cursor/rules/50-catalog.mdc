@@ -1,0 +1,30 @@
+---
+description: Catalog loader and evidence_sets.json renderer invariants
+globs: internal/catalog/**/*.go
+alwaysApply: false
+---
+
+# Catalog and render
+
+The catalog is the contract between fetchers, the TUI, and Paramify. Source of truth for shape: [evidence_fetchers_catalog.json](../../../evidence-fetchers/1-select-fetchers/evidence_fetchers_catalog.json).
+
+## Loader rules
+
+- Reject duplicate `id` values across categories.
+- Enforce `EVD-<UPPER>-<UPPER>` shape; reject anything else.
+- Verify every `script_file` exists on disk under the configured fetcher repo root.
+- Preserve `controls[]` and `solution_capabilities[]` on read — downstream tooling (`map_requirements.py`) depends on them.
+
+## Renderer rules (`evidence_sets.json`)
+
+Use the **rich** path:
+
+- `instructions`: rich-text array of `{type:"p", children:[{bold, code, text}]}` nodes. The Paramify wire call flattens to a string, but round-trippers (`update_evidence_sets_rich_text.py`) need the source preserved. Never collapse to a plain string in the renderer.
+- `validation_rules`: regex strings JSON-escaped so they survive JSON-in-JSON storage in Paramify. Mirror the escape logic from `generate_evidence_sets.py:47-96`.
+- `controls[]`, `solution_capabilities[]`: must be preserved in render output. The legacy `select_fetchers.py` path drops these — do not replicate that bug.
+- `script_file`: keep it; the uploader needs it to attach the script artifact.
+
+## Renderer non-rules
+
+- Do not deduplicate evidence sets by display name; the `id` is the only key.
+- Do not "simplify" multi-instance routing in the catalog or the renderer; the sanitization rules and exact-match-then-strip-suffix logic exist for a reason and live in the runner contract.

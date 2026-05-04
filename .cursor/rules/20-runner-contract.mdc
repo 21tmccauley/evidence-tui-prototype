@@ -1,0 +1,43 @@
+---
+description: Subprocess invariants for the real fetcher runner
+globs: internal/runner/**/*.go
+alwaysApply: false
+---
+
+# Runner contract
+
+The real runner exists to invoke fetcher scripts **exactly the way the Python runner does**, so existing fetchers run unmodified. Source of truth: [run_fetchers.py](../../../evidence-fetchers/3-run-fetchers/run_fetchers.py).
+
+## Invocation
+
+```
+[bash|python3] <script> <profile> <region> <output_dir> /dev/null \
+  --profile <profile> --region <region> --output-dir <output_dir> [extra-flags]
+```
+
+- CWD = the configured fetcher repo root.
+- Env = process env merged with secrets store and per-instance overrides; always set `EVIDENCE_DIR=<output_dir>`.
+- `.py` scripts run via `python3`; everything else via `bash`.
+- Use `exec.CommandContext`, never `exec.Command`, so cancels and timeouts work.
+
+## Timeouts
+
+- Default `FETCHER_TIMEOUT=300s`.
+- Per-fetcher override via `<SCRIPT_NAME>_TIMEOUT`.
+- `ssllabs_tls_scan` floor: 3600s.
+
+## AWS pre/post-flight (do not skip)
+
+- **Pre**: `aws sts get-caller-identity --profile <p> [--region <r>]` before any AWS-source fetcher; on failure surface "run `aws sso login --profile <p>`".
+- **Post**: parse the produced JSON; if `metadata.account_id == "unknown"` or `metadata.arn == "unknown"`, downgrade exit-0 to FAIL and set `error_reason`.
+
+## Multi-instance
+
+- Discover `AWS_REGION_<N>_*`, `GITLAB_PROJECT_<N>_*`, `CHECKOV_INSTANCE_<N>_*` from env.
+- Sanitize resource ids: `/` -> `_`, then strip non-`[A-Za-z0-9_-]`.
+- File routing: try exact `<script>` -> strip trailing `_(project|region)_\d+` -> `<script>_<sanitized_resource>` stem. **Never prefix-match for multi-instance** — that bleeds files across projects.
+
+## Cancel & output
+
+- Cancel: SIGTERM, then SIGKILL after 5s. Card status -> `cancelled`.
+- Pipe stdout/stderr line-by-line into `OutputMsg`. Cap UI buffer at 400 lines and tee everything to `<output_dir>/<id>/{stdout,stderr}.log`.

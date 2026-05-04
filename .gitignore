@@ -1,0 +1,7 @@
+# Local caches
+pre-flight-cache.json
+
+# Local-only variations of fake AWS files (do not commit)
+testdata/aws/config.local
+testdata/aws/credentials.local
+

@@ -1,0 +1,1692 @@
+{
+  "evidence_fetchers_catalog": {
+    "version": "0.1.0",
+    "description": "Catalog of all available evidence fetcher scripts",
+    "last_updated": "2025-02-06",
+    "categories": {
+      "aws": {
+        "name": "Amazon Web Services",
+        "description": "AWS-specific evidence collection scripts",
+        "access_method": "AWS CLI via AWS SSO/read-only IAM role",
+        "access_method_description": "The evidence fetcher scripts use AWS CLI which must be installed and configured with a read-only AWS SSO/read-only IAM role.",
+        "logo": "fetchers/logos/aws.svg",
+        "scripts": {
+          "auto_scaling_high_availability": {
+            "script_file": "fetchers/aws/auto_scaling_high_availability.sh",
+            "name": "Auto Scaling High Availability",
+            "description": "Evidence for Auto Scaling group high availability configurations",
+            "id": "EVD-AUTO-SCALING-HA",
+            "instructions": "Script: auto_scaling_high_availability.sh. Commands executed: aws autoscaling describe-auto-scaling-groups, aws autoscaling describe-launch-configurations",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "high-availability",
+              "autoscaling",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "aws_component_ssl_enforcement": {
+            "script_file": "fetchers/aws/aws_component_ssl_enforcement_status.sh",
+            "name": "AWS Component SSL Enforcement",
+            "description": "Evidence for SSL/TLS enforcement across AWS components including S3 buckets and RDS instances",
+            "id": "EVD-AWS-SSL-ENFORCEMENT",
+            "instructions": "Script: aws_component_ssl_enforcement_status.sh. Commands executed: aws s3api list-buckets, aws s3api get-bucket-policy, aws rds describe-db-instances, aws rds describe-db-parameters",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "ssl",
+              "encryption",
+              "s3",
+              "rds",
+              "aws"
+            ],
+            "validation_rules": [
+              {
+                "id": 1,
+                "regex": "\"s3_total\":\\s*(?P<s3_total>\\d+)[\\s\\S]*?\"s3_ssl_enforced\":\\s*(?P<s3_ssl_enforced>\\d+)",
+                "logic": "IF s3_total == s3_ssl_enforced THEN PASS"
+              },
+              {
+                "id": 2,
+                "regex": "\"rds_total\":\\s*(?P<rds_total>\\d+)[\\s\\S]*?\"rds_ssl_enforced\":\\s*(?P<rds_ssl_enforced>\\d+)",
+                "logic": "IF rds_total == rds_ssl_enforced THEN PASS"
+              }
+            ],
+            "solution_capabilities": [
+              "Denial Of Service Protection: Amazon Web Application Firewall",
+              "Protection of Data at Rest",
+              "Protection of Data in Transit"
+            ],
+            "controls": [
+              "CNA-02",
+              "CNA-03"
+            ]
+          },
+          "aws_config_conformance_packs": {
+            "script_file": "fetchers/aws/aws_config_conformance_packs.sh",
+            "name": "AWS Config Conformance Packs",
+            "description": "Evidence for AWS Config conformance pack compliance and rule evaluations",
+            "id": "EVD-CONFIG-PACKS",
+            "instructions": "Script: aws_config_conformance_packs.sh. Commands executed: aws configservice describe-conformance-packs, aws configservice describe-conformance-pack-status, aws configservice get-conformance-pack-compliance-summary, aws configservice get-conformance-pack-compliance-details",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "config",
+              "compliance",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Baseline Configuration Exceptions",
+              "Baseline Configuration Standard",
+              "Configuration Checks: CIS L2"
+            ],
+            "controls": [
+              "SVC-04"
+            ]
+          },
+          "aws_config_monitoring": {
+            "script_file": "fetchers/aws/aws_config_monitoring.sh",
+            "name": "AWS Config Monitoring",
+            "description": "Evidence for AWS Config service monitoring and recording status",
+            "id": "EVD-CONFIG-MONITORING",
+            "instructions": "Script: aws_config_monitoring.sh. Commands executed: aws configservice describe-configuration-recorders, aws configservice describe-configuration-recorder-status, aws configservice describe-delivery-channels",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "config",
+              "monitoring",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Baseline Configuration Exceptions",
+              "Baseline Configuration Standard",
+              "Configuration Checks: CIS L2"
+            ],
+            "controls": [
+              "SVC-04"
+            ]
+          },
+          "backup_recovery_high_availability": {
+            "script_file": "fetchers/aws/backup_recovery_high_availability.sh",
+            "name": "Backup Recovery High Availability",
+            "description": "Evidence for backup and recovery high availability configurations",
+            "id": "EVD-BACKUP-RECOVERY-HA",
+            "instructions": "Script: backup_recovery_high_availability.sh. Commands executed: aws backup list-backup-vaults, aws backup list-backup-plans",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "backup",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "backup_validation": {
+            "script_file": "fetchers/aws/backup_validation.sh",
+            "name": "Backup Validation",
+            "description": "Evidence for backup validation and compliance",
+            "id": "EVD-BACKUP-VALIDATION",
+            "instructions": "Script: backup_validation.sh. Commands executed: aws backup list-backup-jobs, aws backup list-recovery-points",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "backup",
+              "validation",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          },
+          "block_storage_encryption_status": {
+            "script_file": "fetchers/aws/block_storage_encryption_status.sh",
+            "name": "Block Storage Encryption",
+            "description": "Evidence for EBS volume encryption status and configurations",
+            "id": "EVD-BLOCK-ENC",
+            "instructions": "Script: block_storage_encryption_status.sh. Commands executed: aws ec2 get-ebs-encryption-by-default, aws ec2 get-ebs-default-kms-key-id, aws ec2 describe-volumes, aws efs describe-file-systems",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "encryption",
+              "storage",
+              "ebs",
+              "efs",
+              "aws"
+            ],
+            "validation_rules": [
+              "\"Encrypted\":\\s*true"
+            ],
+            "solution_capabilities": [
+              "Authorized Cryptographic Modules",
+              "Protection of Data at Rest",
+              "Protection of Data in Transit"
+            ],
+            "controls": [
+              "SVC-02",
+              "SVC-05"
+            ]
+          },
+          "cloudwatch_high_availability": {
+            "script_file": "fetchers/aws/cloudwatch_high_availability.sh",
+            "name": "CloudWatch High Availability",
+            "description": "Evidence for CloudWatch monitoring high availability",
+            "id": "EVD-CLOUDWATCH-HA",
+            "instructions": "Script: cloudwatch_high_availability.sh. Commands executed: aws cloudwatch describe-alarms, aws logs describe-log-groups",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "monitoring",
+              "cloudwatch",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "cloudtrail_configuration": {
+            "script_file": "fetchers/aws/cloudtrail_configuration.sh",
+            "name": "CloudTrail Configuration",
+            "description": "Evidence for CloudTrail configuration showing audit event logging setup in AWS account/region",
+            "id": "EVD-CLOUDTRAIL-CONFIG",
+            "instructions": "Script: cloudtrail_configuration.sh. Commands executed: aws cloudtrail list-trails, aws cloudtrail get-trail, aws cloudtrail get-trail-status",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "cloudtrail",
+              "audit",
+              "logging",
+              "compliance",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Audit Logging Criteria: Amazon CloudTrail"
+            ],
+            "controls": [
+              "IAM-06",
+              "MLA-01",
+              "MLA-02",
+              "MLA-07"
+            ]
+          },
+          "database_high_availability": {
+            "script_file": "fetchers/aws/database_high_availability.sh",
+            "name": "Database High Availability",
+            "description": "Evidence for database high availability configurations",
+            "id": "EVD-DATABASE-HA",
+            "instructions": "Script: database_high_availability.sh. Commands executed: aws rds describe-db-instances, aws rds describe-db-clusters",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "database",
+              "rds",
+              "aurora",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "detect_new_aws_resource": {
+            "script_file": "fetchers/aws/detect_new_aws_resource.sh",
+            "name": "Detect New AWS Resource",
+            "description": "Evidence for AWS Config and EventBridge setup for new resource detection and monitoring",
+            "id": "EVD-DETECT-NEW-RESOURCE",
+            "instructions": "Script: detect_new_aws_resource.sh. Commands executed: aws configservice describe-configuration-recorders, aws events list-rules, aws sns list-topics",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "monitoring",
+              "config",
+              "eventbridge",
+              "sns",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Contingency Plan Test",
+              "Denial Of Service Protection: Amazon Web Application Firewall",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "efs_high_availability": {
+            "script_file": "fetchers/aws/efs_high_availability.sh",
+            "name": "EFS High Availability",
+            "description": "Evidence for EFS high availability configurations",
+            "id": "EVD-EFS-HA",
+            "instructions": "Script: efs_high_availability.sh. Commands executed: aws efs describe-file-systems, aws efs describe-mount-targets",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "efs",
+              "storage",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "eks_high_availability": {
+            "script_file": "fetchers/aws/eks_high_availability.sh",
+            "name": "EKS High Availability",
+            "description": "Evidence for EKS cluster high availability configurations",
+            "id": "EVD-EKS-HA",
+            "instructions": "Script: eks_high_availability.sh. Commands executed: aws eks list-clusters, aws eks describe-cluster, aws eks list-nodegroups, aws eks describe-nodegroup",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "eks",
+              "kubernetes",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "eks_least_privilege": {
+            "script_file": "fetchers/aws/eks_least_privilege.sh",
+            "name": "EKS Least Privilege",
+            "description": "Evidence for EKS cluster least privilege access controls and RBAC configurations",
+            "id": "EVD-EKS-PRIV",
+            "instructions": "Script: eks_least_privilege.sh. Commands executed: aws eks describe-cluster, aws eks list-pod-identity-associations, aws eks list-addons",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "eks",
+              "kubernetes",
+              "security",
+              "rbac",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          },
+          "guard_duty": {
+            "script_file": "fetchers/aws/guard_duty.sh",
+            "name": "GuardDuty Configuration",
+            "description": "Evidence for GuardDuty threat detection configuration",
+            "id": "EVD-GUARD-DUTY",
+            "instructions": "Script: guard_duty.sh. Commands executed: aws guardduty list-detectors, aws guardduty get-detector, aws guardduty get-findings",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "security",
+              "threat-detection",
+              "guardduty",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "iam_identity_center": {
+            "script_file": "fetchers/aws/iam_identity_center.sh",
+            "name": "IAM Identity Center",
+            "description": "Evidence for IAM Identity Center configurations",
+            "id": "EVD-IAM-IDENTITY-CENTER",
+            "instructions": "Script: iam_identity_center.sh. Commands executed: aws sso-admin list-instances, aws sso-admin list-permission-sets",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "iam",
+              "identity",
+              "sso",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Authentication Required",
+              "Customer Session Termination",
+              "Just-in-Time Authorization: Okta",
+              "Least Privilege: Okta",
+              "Logical Access Review",
+              "Logical Access Revocation",
+              "Logical Access Role Permission Review",
+              "Multifactor Authentication: Okta IDaaS",
+              "Non-User Accounts: Okta",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Privileged Accounts",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)",
+              "Temporary Accounts"
+            ],
+            "controls": [
+              "IAM-01",
+              "IAM-03",
+              "IAM-04",
+              "IAM-05"
+            ]
+          },
+          "iam_policies": {
+            "script_file": "fetchers/aws/iam_policies.sh",
+            "name": "IAM Policies",
+            "description": "Evidence for IAM policy configurations and compliance",
+            "id": "EVD-IAM-POLICIES",
+            "instructions": "Script: iam_policies.sh. Commands executed: aws iam list-policies, aws iam get-policy, aws iam get-policy-version",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "iam",
+              "policies",
+              "security",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Authentication Required",
+              "Customer Session Termination",
+              "Just-in-Time Authorization: Okta",
+              "Least Privilege: Okta",
+              "Logical Access Review",
+              "Logical Access Revocation",
+              "Logical Access Role Permission Review",
+              "Multifactor Authentication: Okta IDaaS",
+              "Non-User Accounts: Okta",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Privileged Accounts",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)",
+              "Temporary Accounts"
+            ],
+            "controls": [
+              "IAM-01",
+              "IAM-03",
+              "IAM-04",
+              "IAM-05",
+              "SVC-04"
+            ]
+          },
+          "iam_roles": {
+            "script_file": "fetchers/aws/iam_roles.sh",
+            "name": "IAM Roles",
+            "description": "Evidence for IAM role configurations including trust policies, attached policies, and instance profiles",
+            "id": "EVD-IAM-ROLES",
+            "instructions": "Script: iam_roles.sh. Commands executed: aws iam list-roles, aws iam get-role, aws iam list-attached-role-policies, aws iam list-instance-profiles-for-role, aws iam get-account-password-policy",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "iam",
+              "roles",
+              "security",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Authentication Required",
+              "Customer Session Termination",
+              "Just-in-Time Authorization: Okta",
+              "Least Privilege: Okta",
+              "Logical Access Review",
+              "Logical Access Revocation",
+              "Logical Access Role Permission Review",
+              "Multifactor Authentication: Okta IDaaS",
+              "Non-User Accounts: Okta",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Privileged Accounts",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)",
+              "Temporary Accounts"
+            ],
+            "controls": [
+              "IAM-01",
+              "IAM-03",
+              "IAM-04",
+              "IAM-05"
+            ]
+          },
+          "iam_users_groups": {
+            "script_file": "fetchers/aws/iam_users_groups.sh",
+            "name": "IAM Users and Groups",
+            "description": "Evidence for IAM user and group configurations",
+            "id": "EVD-IAM-USERS-GROUPS",
+            "instructions": "Script: iam_users_groups.sh. Commands executed: aws iam list-users, aws iam list-groups, aws iam get-user, aws iam get-group",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "iam",
+              "users",
+              "groups",
+              "security",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Authentication Required",
+              "Customer Session Termination",
+              "Just-in-Time Authorization: Okta",
+              "Least Privilege: Okta",
+              "Logical Access Review",
+              "Logical Access Revocation",
+              "Logical Access Role Permission Review",
+              "Multifactor Authentication: Okta IDaaS",
+              "Non-User Accounts: Okta",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Privileged Accounts",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)",
+              "Temporary Accounts"
+            ],
+            "controls": [
+              "IAM-01",
+              "IAM-03",
+              "IAM-04",
+              "IAM-05",
+              "SVC-04"
+            ]
+          },
+          "kms_key_rotation": {
+            "script_file": "fetchers/aws/kms_key_rotation.sh",
+            "name": "KMS Key Rotation",
+            "description": "Evidence for KMS key rotation policies and status",
+            "id": "EVD-KMS-ROT",
+            "instructions": "Script: kms_key_rotation.sh. Commands executed: aws kms list-keys, aws kms describe-key, aws kms get-key-rotation-status",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "kms",
+              "encryption",
+              "key-rotation",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Cryptographic Key Management: Amazon Key Management Service (KMS)"
+            ],
+            "controls": [
+              "SVC-06"
+            ]
+          },
+          "load_balancer_encryption_status": {
+            "script_file": "fetchers/aws/load_balancer_encryption_status.sh",
+            "name": "Load Balancer Encryption Status",
+            "description": "Evidence for load balancer encryption configurations and SSL policies",
+            "id": "EVD-LB-ENC-STATUS",
+            "instructions": "Script: load_balancer_encryption_status.sh. Commands executed: aws elbv2 describe-load-balancers, aws elbv2 describe-listeners",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "load-balancer",
+              "encryption",
+              "ssl",
+              "aws"
+            ],
+            "validation_rules": [
+              "\"encrypted\":\\s*true"
+            ],
+            "solution_capabilities": [
+              "Authorized Cryptographic Modules",
+              "Denial Of Service Protection: Amazon Web Application Firewall",
+              "Protection of Data at Rest",
+              "Protection of Data in Transit"
+            ],
+            "controls": [
+              "CNA-02",
+              "CNA-03",
+              "SVC-02",
+              "SVC-05",
+              "SVC-09"
+            ]
+          },
+          "load_balancer_high_availability": {
+            "script_file": "fetchers/aws/load_balancer_high_availability.sh",
+            "name": "Load Balancer High Availability",
+            "description": "Evidence for load balancer high availability configurations",
+            "id": "EVD-LB-HA",
+            "instructions": "Script: load_balancer_high_availability.sh. Commands executed: aws elbv2 describe-load-balancers, aws elbv2 describe-target-groups, aws elbv2 describe-load-balancer-attributes",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "load-balancer",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "network_resilience_high_availability": {
+            "script_file": "fetchers/aws/network_resilience_high_availability.sh",
+            "name": "Network Resilience High Availability",
+            "description": "Evidence for network resilience and high availability configurations",
+            "id": "EVD-NETWORK-RESILIENCE-HA",
+            "instructions": "Script: network_resilience_high_availability.sh. Commands executed: aws ec2 describe-vpcs, aws ec2 describe-subnets, aws ec2 describe-route-tables",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "network",
+              "vpc",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "rds_encryption_status": {
+            "script_file": "fetchers/aws/rds_encryption_status.sh",
+            "name": "RDS Encryption",
+            "description": "Evidence for RDS database encryption at rest and in transit",
+            "id": "EVD-RDS-ENC",
+            "instructions": "Script: rds_encryption_status.sh. Commands executed: aws rds describe-db-instances, aws rds describe-db-clusters",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "rds",
+              "encryption",
+              "database",
+              "aws"
+            ],
+            "validation_rules": [
+              "\"StorageEncrypted\":\\s*true"
+            ],
+            "solution_capabilities": [
+              "Authorized Cryptographic Modules",
+              "Protection of Data at Rest",
+              "Protection of Data in Transit"
+            ],
+            "controls": [
+              "SVC-02",
+              "SVC-05"
+            ]
+          },
+          "route53_high_availability": {
+            "script_file": "fetchers/aws/route53_high_availability.sh",
+            "name": "Route 53 High Availability",
+            "description": "Evidence for Route 53 high availability configurations",
+            "id": "EVD-ROUTE53-HA",
+            "instructions": "Script: route53_high_availability.sh. Commands executed: aws route53 list-health-checks, aws route53 get-health-check-status",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "route53",
+              "dns",
+              "high-availability",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "AWS GovCloud Availability Zones",
+              "Backup Recovery: Amazon Simple Storage Service (S3)",
+              "Recovery Objectives",
+              "User-Level Data Backup Configuration: Amazon RDS (Postgres)"
+            ],
+            "controls": [
+              "CNA-06",
+              "RPL-03"
+            ]
+          },
+          "s3_encryption_status": {
+            "script_file": "fetchers/aws/s3_encryption_status.sh",
+            "name": "S3 Encryption",
+            "description": "Evidence for S3 bucket encryption configurations and policies",
+            "id": "EVD-S3-ENC",
+            "instructions": "Script: s3_encryption_status.sh. Commands executed: aws s3api list-buckets, aws s3api get-bucket-encryption",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "s3",
+              "encryption",
+              "storage",
+              "aws"
+            ],
+            "validation_rules": [
+              "\"ServerSideEncryptionConfiguration\"",
+              "\"ApplyServerSideEncryptionByDefault\""
+            ],
+            "solution_capabilities": [
+              "Authorized Cryptographic Modules",
+              "Protection of Data at Rest",
+              "Protection of Data in Transit"
+            ],
+            "controls": [
+              "SVC-02",
+              "SVC-05"
+            ]
+          },
+          "security_groups": {
+            "script_file": "fetchers/aws/security_groups.sh",
+            "name": "Security Groups",
+            "description": "Evidence for security group configurations and rules",
+            "id": "EVD-SECURITY-GROUPS",
+            "instructions": "Script: security_groups.sh. Commands executed: aws ec2 describe-security-groups",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "security-groups",
+              "network",
+              "security",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Policy Enforcement Point Exceptions",
+              "Policy Enforcement Points: Amazon Security Groups"
+            ],
+            "controls": [
+              "CNA-01",
+              "CNA-02",
+              "CNA-03",
+              "CNA-05",
+              "SVC-02"
+            ]
+          },
+          "waf_all_rules": {
+            "script_file": "fetchers/aws/waf_all_rules.sh",
+            "name": "WAF All Rules",
+            "description": "Evidence for all WAF rules and configurations",
+            "id": "EVD-WAF-ALL-RULES",
+            "instructions": "Script: waf_all_rules.sh. Commands executed: aws wafv2 list-web-acls, aws wafv2 get-web-acl, aws wafv2 list-rule-groups",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "waf",
+              "security",
+              "web-application-firewall",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Denial Of Service Protection: Amazon Web Application Firewall"
+            ],
+            "controls": [
+              "CNA-01",
+              "CNA-02",
+              "CNA-03",
+              "CNA-05",
+              "CNA-06",
+              "CNA-07"
+            ]
+          },
+          "waf_dos_rules": {
+            "script_file": "fetchers/aws/waf_DoS_rules.sh",
+            "name": "WAF DoS Rules",
+            "description": "Evidence for WAF DoS protection rules and configurations",
+            "id": "EVD-WAF-DOS-RULES",
+            "instructions": "Script: waf_DoS_rules.sh. Commands executed: aws wafv2 list-web-acls, aws wafv2 get-web-acl",
+            "dependencies": [
+              "aws-cli"
+            ],
+            "tags": [
+              "waf",
+              "dos",
+              "security",
+              "aws"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Denial Of Service Protection: Amazon Web Application Firewall"
+            ],
+            "controls": [
+              "CNA-01",
+              "CNA-02",
+              "CNA-03",
+              "CNA-05",
+              "CNA-06",
+              "CNA-07"
+            ]
+          }
+        }
+      },
+      "sentinelone": {
+        "name": "SentinelOne",
+        "description": "SentinelOne-specific evidence collection scripts and fetchers for users, agents, XDR assets, cloud detection rules, and activities.",
+        "access_method": "SentinelOne API via API Token",
+        "access_method_description": "The evidence fetcher scripts use the SentinelOne REST API which requires SENTINELONE_API_URL and SENTINELONE_API_TOKEN environment variables. Authentication uses Api Token authorization header.",
+        "logo": "fetchers/logos/sentinelone.svg",
+        "scripts": {
+          "sentinelone_user_config": {
+            "script_file": "fetchers/sentinelone/sentinelone_user_config.py",
+            "name": "SentinelOne User Config",
+            "description": "Retrieve SentinelOne user records and produce summary analysis (admin counts, 2FA, last login).",
+            "id": "EVD-S1-USER",
+            "instructions": "Script: userfetcher.py. Calls the SentinelOne API endpoint /web/api/v2.1/users using ApiToken authorization, pages with cursor, and writes JSON and CSV summary.",
+            "dependencies": [
+              "python3",
+              "requests"
+            ],
+            "tags": [
+              "users",
+              "iam",
+              "sentinelone"
+            ],
+            "validation_rules": [
+              {
+                "id": 1,
+                "regex": "\"record_count\":\\s*(?P<record_count>\\d+)",
+                "logic": "IF record_count >= 0 THEN PASS (ensures script returned numeric count)"
+              },
+              {
+                "id": 2,
+                "regex": "\"admin_user_count\":\\s*(?P<admin_user_count>\\d+)",
+                "logic": "IF admin_user_count <= record_count THEN PASS"
+              }
+            ],
+            "solution_capabilities": [],
+            "controls": []
+          },
+          "sentinelone_xdr_assets": {
+            "script_file": "fetchers/sentinelone/sentinelone_xdr_assets.py",
+            "name": "SentinelOne XDR Assets",
+            "description": "Retrieve XDR asset inventory (containers, images, cloud resources) and summary counts.",
+            "id": "EVD-S1-XDR-ASSET",
+            "instructions": "Script: xdrassetfetcher.py. Calls the SentinelOne API endpoint /web/api/v2.1/xdr/assets, supports cursor pagination, summarizes infectionStatus and assetStatus, writes JSON and CSV summary.",
+            "dependencies": [
+              "python3",
+              "requests"
+            ],
+            "tags": [
+              "assets",
+              "xdr",
+              "sentinelone"
+            ],
+            "validation_rules": [
+              {
+                "id": 1,
+                "regex": "\"record_count\":\\s*(?P<record_count>\\d+)",
+                "logic": "IF record_count >= 0 THEN PASS"
+              },
+              {
+                "id": 2,
+                "regex": "\"healthy_infection_status_count\":\\s*(?P<healthy>\\d+)",
+                "logic": "IF healthy <= record_count THEN PASS"
+              }
+            ],
+            "solution_capabilities": [
+              "Independent Security Assessment",
+              "Vulnerability Assessments"
+            ],
+            "controls": [
+              "MLA-05"
+            ]
+          },
+          "sentinelone_agents": {
+            "script_file": "fetchers/sentinelone/sentinelone_agents.py",
+            "name": "SentinelOne Agents",
+            "description": "Retrieve agents information, containerized workload counts, cloud provider metadata, and optional agent counts endpoint.",
+            "id": "EVD-S1-AGENT",
+            "instructions": "Script: agentfetcher.py. Calls /web/api/v2.1/agents (and /web/api/v2.1/agents/count), pages with cursor, collects cluster names and container/pod counts, writes JSON and CSV summary.",
+            "dependencies": [
+              "python3",
+              "requests"
+            ],
+            "tags": [
+              "agents",
+              "endpoints",
+              "sentinelone"
+            ],
+            "validation_rules": [
+              {
+                "id": 1,
+                "regex": "\"record_count\":\\s*(?P<record_count>\\d+)",
+                "logic": "IF record_count >= 0 THEN PASS"
+              },
+              {
+                "id": 2,
+                "regex": "\"reported_agent_count\":\\s*(?P<reported>\\d+)",
+                "logic": "IF reported_agent_count is null or reported_agent_count >= 0 THEN PASS (optional count may be missing)"
+              }
+            ],
+            "solution_capabilities": [
+              "Independent Security Assessment",
+              "Vulnerability Assessments"
+            ],
+            "controls": [
+              "MLA-05"
+            ]
+          },
+          "sentinelone_cloud_detection_rules": {
+            "script_file": "fetchers/sentinelone/sentinelone_cloud_detection_rules.py",
+            "name": "SentinelOne Cloud Detection Rules",
+            "description": "Retrieve custom cloud detection rules, last alert times and update timestamps.",
+            "id": "EVD-S1-CLOUD-RULE",
+            "instructions": "Script: clouddetectionrules.py. Calls /web/api/v2.1/cloud-detection/rules with cursor pagination, extracts lastAlertTime and updatedAt fields, writes JSON and CSV summary.",
+            "dependencies": [
+              "python3",
+              "requests"
+            ],
+            "tags": [
+              "detection",
+              "rules",
+              "cloud",
+              "sentinelone"
+            ],
+            "validation_rules": [
+              {
+                "id": 1,
+                "regex": "\"total_custom_detection_rules\":\\s*(?P<total>\\d+)",
+                "logic": "IF total >= 0 THEN PASS"
+              },
+              {
+                "id": 2,
+                "regex": "\"rules_never_triggered_count\":\\s*(?P<never_triggered>\\d+)",
+                "logic": "IF never_triggered <= total THEN PASS"
+              }
+            ],
+            "solution_capabilities": [
+              "Centralized Security Event Correlation (SIEM): SentinelOne",
+              "Security Event Notifications: SentinelOne",
+              "Suspicious Activity Response: SentinelOne"
+            ],
+            "controls": [
+              "IAM-06",
+              "MLA-01",
+              "MLA-02"
+            ]
+          },
+          "sentinelone_activities": {
+            "script_file": "fetchers/sentinelone/sentinelone_activities.py",
+            "name": "SentinelOne Activities",
+            "description": "Retrieve SentinelOne activity events for a set of activity types (FedRAMP list) and summarize activity types and descriptions.",
+            "id": "EVD-S1-ACTIVITY",
+            "instructions": "Script: activityfetcher.py. Calls /web/api/v2.1/activities with activityTypes filter (cursor pagination), aggregates activityType counts and primary descriptions, writes JSON and CSV summary.",
+            "dependencies": [
+              "python3",
+              "requests"
+            ],
+            "tags": [
+              "activities",
+              "audit",
+              "sentinelone"
+            ],
+            "validation_rules": [
+              {
+                "id": 1,
+                "regex": "\"total_activities_collected\":\\s*(?P<total>\\d+)",
+                "logic": "IF total >= 0 THEN PASS"
+              },
+              {
+                "id": 2,
+                "regex": "\"activity_type\":\\s*\\{(?P<types>[\\s\\S]*?)\\}",
+                "logic": "IF activity_type object exists THEN PASS"
+              }
+            ],
+            "solution_capabilities": [
+              "Monitored Event Types",
+              "Security Event Notifications: SentinelOne"
+            ],
+            "controls": [
+              "MLA-02"
+            ]
+          }
+        }
+      },
+      "k8s": {
+        "name": "Kubernetes",
+        "description": "Kubernetes and EKS-specific evidence collection scripts",
+        "access_method": "kubectl CLI",
+        "access_method_description": "The evidence fetcher scripts use kubectl which must be installed and configured for your Kubernetes cluster. For EKS clusters, use 'aws eks update-kubeconfig' to configure kubectl.",
+        "logo": "fetchers/logos/kubernetes.svg",
+        "scripts": {
+          "eks_microservice_segmentation": {
+            "script_file": "fetchers/k8s/eks_microservice_segmentation.sh",
+            "name": "EKS Microservice Segmentation",
+            "description": "Evidence for EKS microservice segmentation including network policies, security groups, and resource limits",
+            "id": "EVD-EKS-MICROSERVICE-SEG",
+            "instructions": "Script: eks_microservice_segmentation.sh. Commands executed: kubectl get networkpolicies, kubectl describe daemonset aws-node, aws ec2 describe-instances",
+            "dependencies": [
+              "kubectl",
+              "aws-cli"
+            ],
+            "tags": [
+              "eks",
+              "kubernetes",
+              "microservices",
+              "segmentation",
+              "network-policies"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          },
+          "eks_pod_inventory": {
+            "script_file": "fetchers/k8s/eks_pod_inventory.sh",
+            "name": "EKS Pod Inventory",
+            "description": "Evidence for EKS pod inventory and security analysis",
+            "id": "EVD-EKS-POD-INVENTORY",
+            "instructions": "Script: eks_pod_inventory.sh. Commands executed: kubectl get pods, kubectl describe pods",
+            "dependencies": [
+              "kubectl"
+            ],
+            "tags": [
+              "eks",
+              "kubernetes",
+              "pods",
+              "inventory",
+              "security"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          },
+          "kubectl_security": {
+            "script_file": "fetchers/k8s/kubectl_security.sh",
+            "name": "Kubectl Security",
+            "description": "Evidence for Kubernetes security configuration validation",
+            "id": "EVD-KUBECTL-SECURITY",
+            "instructions": "Script: kubectl_security.sh. Commands executed: kubectl get clusterroles, kubectl get clusterrolebindings, kubectl get networkpolicies",
+            "dependencies": [
+              "kubectl"
+            ],
+            "tags": [
+              "kubernetes",
+              "security",
+              "rbac",
+              "clusterroles",
+              "network-policies"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          }
+        }
+      },
+      "knowbe4": {
+        "name": "KnowBe4",
+        "description": "KnowBe4 security awareness training evidence collection scripts",
+        "access_method": "KnowBe4 API via API Token",
+        "access_method_description": "The evidence fetcher scripts use the KnowBe4 REST API which requires KNOWBE4_API_KEY environment variable. Note: KnowBe4 API access is only available for Platinum and Diamond customers. Authentication uses Bearer token authorization.",
+        "logo": "fetchers/logos/knowbe4.svg",
+        "scripts": {
+          "high_risk_training": {
+            "script_file": "fetchers/knowbe4/high_risk_training.sh",
+            "name": "Role Specific Training for High Risk Users",
+            "description": "Evidence for role-specific training compliance and completion status",
+            "id": "EVD-HIGH-RISK-TRAINING",
+            "instructions": "Script: high_risk_training.sh. Commands executed: KnowBe4 API calls for role-specific training data",
+            "dependencies": [
+              "curl",
+              "jq"
+            ],
+            "tags": [
+              "training",
+              "compliance",
+              "role-based",
+              "knowbe4"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Role Based Security Training"
+            ],
+            "controls": [
+              "CED-02"
+            ]
+          },
+          "security_awareness_training": {
+            "script_file": "fetchers/knowbe4/security_awareness_training.sh",
+            "name": "Security Awareness Training",
+            "description": "Evidence for security awareness training compliance and user completion status",
+            "id": "EVD-SECURITY-AWARENESS-TRAINING",
+            "instructions": "Script: security_awareness_training.sh. Commands executed: KnowBe4 API calls for user training data and enrollments",
+            "dependencies": [
+              "curl",
+              "jq"
+            ],
+            "tags": [
+              "training",
+              "security-awareness",
+              "compliance",
+              "knowbe4"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Practical Security Training Exercises",
+              "Security Awareness Training"
+            ],
+            "controls": [
+              "CED-01"
+            ]
+          },
+          "developer_specific_training": {
+            "script_file": "fetchers/knowbe4/developer_specific_training.sh",
+            "name": "Developer Specific Training",
+            "description": "Evidence for developer specific security awareness training compliance and user completion status",
+            "id": "EVD-DEVELOPER-SPECIFIC-TRAINING",
+            "instructions": "Script: developer_specific_training.sh. Commands executed: KnowBe4 API calls for user training data and enrollments",
+            "dependencies": [
+              "curl",
+              "jq"
+            ],
+            "tags": [
+              "training",
+              "security-awareness",
+              "compliance",
+              "knowbe4"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Developer Specific Training"
+            ],
+            "controls": []
+          },
+          "module_based_summary": {
+            "script_file": "fetchers/knowbe4/module_based_summary.sh",
+            "name": "Module Based Summary",
+            "description": "Evidence for security awareness training summarized at the module level",
+            "id": "EVD-MODULE-BASED-SUMMARY",
+            "instructions": "Script: module_based_summary.sh. Commands executed: KnowBe4 API calls for user training data and enrollments",
+            "dependencies": [
+              "curl",
+              "jq"
+            ],
+            "tags": [
+              "training",
+              "security-awareness",
+              "compliance",
+              "knowbe4"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          }
+        }
+      },
+      "okta": {
+        "name": "Okta",
+        "description": "Okta identity and access management evidence collection scripts",
+        "access_method": "Okta API via API Token",
+        "access_method_description": "The evidence fetcher scripts use the Okta REST API which requires OKTA_API_TOKEN and OKTA_ORG_URL environment variables. Authentication uses API Token authorization header.",
+        "logo": "fetchers/logos/okta.svg",
+        "scripts": {
+          "okta_phishing_resistant_mfa": {
+            "script_file": "fetchers/okta/okta_phishing_resistant_mfa.py",
+            "name": "Okta Phishing-Resistant MFA (KSI-IAM-01)",
+            "description": "FedRAMP 20x KSI-IAM-01 evidence: phishing-resistant MFA configuration and adoption (WebAuthn/security keys).",
+            "id": "EVD-OKTA-KSI-IAM-01",
+            "instructions": "Script: okta_phishing_resistant_mfa.py. Uses Okta APIs to collect phishing-resistant MFA (FIDO2/WebAuthn) configuration and adoption evidence. Output: okta_phishing_resistant_mfa.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-01",
+              "mfa",
+              "phishing-resistant",
+              "webauthn",
+              "security-key"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Authentication Required",
+              "Customer Session Termination",
+              "Least Privilege: Okta",
+              "Multifactor Authentication: Okta IDaaS",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)"
+            ],
+            "controls": [
+              "IAM-01",
+              "IAM-05"
+            ]
+          },
+          "okta_passwordless_authentication": {
+            "script_file": "fetchers/okta/okta_passwordless_authentication.py",
+            "name": "Okta Passwordless Authentication (KSI-IAM-02)",
+            "description": "FedRAMP 20x KSI-IAM-02 evidence: passwordless authentication enforcement and user enrollment (security keys / policy).",
+            "id": "EVD-OKTA-KSI-IAM-02",
+            "instructions": "Script: okta_passwordless_authentication.py. Uses Okta APIs to collect passwordless authentication policy and enrollment evidence. Output: okta_passwordless_authentication.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-02",
+              "passwordless",
+              "security-key"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Non-User Accounts: Okta",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)"
+            ],
+            "controls": [
+              "IAM-03"
+            ]
+          },
+          "okta_non_user_accounts_authentication": {
+            "script_file": "fetchers/okta/okta_non_user_accounts_authentication.py",
+            "name": "Okta Non-User Accounts (KSI-IAM-03)",
+            "description": "FedRAMP 20x KSI-IAM-03 evidence: service/non-user accounts and automation authentication (API tokens, OAuth apps).",
+            "id": "EVD-OKTA-KSI-IAM-03",
+            "instructions": "Script: okta_non_user_accounts_authentication.py. Uses Okta APIs to identify non-user/service accounts using definitive indicators and automation credentials. Output: okta_non_user_accounts_authentication.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-03",
+              "service-accounts",
+              "api-tokens",
+              "oauth"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Non-User Accounts: Okta",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)"
+            ],
+            "controls": [
+              "IAM-03"
+            ]
+          },
+          "okta_just_in_time_authorization": {
+            "script_file": "fetchers/okta/okta_just_in_time_authorization.py",
+            "name": "Okta Just-in-Time Authorization (KSI-IAM-04)",
+            "description": "FedRAMP 20x KSI-IAM-04 evidence: conditional access, group-based assignments, and recent access activity (JIT authorization).",
+            "id": "EVD-OKTA-KSI-IAM-04",
+            "instructions": "Script: okta_just_in_time_authorization.py. Uses Okta APIs to collect JIT authorization evidence (policies, rules, group-based access, activity). Output: okta_just_in_time_authorization.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-04",
+              "jit",
+              "conditional-access",
+              "groups"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Just-in-Time Authorization: Okta",
+              "Logical Access Review",
+              "Logical Access Revocation",
+              "Logical Access Role Permission Review",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Privileged Accounts",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)",
+              "Temporary Accounts"
+            ],
+            "controls": [
+              "IAM-04"
+            ]
+          },
+          "okta_least_privilege": {
+            "script_file": "fetchers/okta/okta_least_privilege.py",
+            "name": "Okta Least Privilege (KSI-IAM-05)",
+            "description": "FedRAMP 20x KSI-IAM-05 evidence: privileged admin population and least-privilege posture (admins vs regular users).",
+            "id": "EVD-OKTA-KSI-IAM-05",
+            "instructions": "Script: okta_least_privilege.py. Uses Okta APIs to identify admins and summarize privileged access. Output: okta_least_privilege.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-05",
+              "least-privilege",
+              "admins"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Administrative Session: Okta IDaaS to Identity Center",
+              "Authentication Required",
+              "Customer Session Termination",
+              "Least Privilege: Okta",
+              "Multifactor Authentication: Okta IDaaS",
+              "Privileged Access: Amazon Identity and Access Management (IAM)",
+              "Service Account Permissions: Amazon Identity and Access Management (IAM)"
+            ],
+            "controls": [
+              "IAM-05"
+            ]
+          },
+          "okta_suspicious_activity_management": {
+            "script_file": "fetchers/okta/okta_suspicious_activity_management.py",
+            "name": "Okta Suspicious Activity (KSI-IAM-06)",
+            "description": "FedRAMP 20x KSI-IAM-06 evidence: suspicious activity monitoring, security events, and behavior detection.",
+            "id": "EVD-OKTA-KSI-IAM-06",
+            "instructions": "Script: okta_suspicious_activity_management.py. Uses Okta APIs to collect security event monitoring and behavior detection evidence. Output: okta_suspicious_activity_management.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-06",
+              "suspicious-activity",
+              "monitoring",
+              "behavior-detection"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Suspicious Activity: Okta"
+            ],
+            "controls": [
+              "IAM-06"
+            ]
+          },
+          "okta_automated_account_management": {
+            "script_file": "fetchers/okta/okta_automated_account_management.py",
+            "name": "Okta Automated Account Management (KSI-IAM-07)",
+            "description": "FedRAMP 20x KSI-IAM-07 evidence: automated account lifecycle management and account health monitoring.",
+            "id": "EVD-OKTA-KSI-IAM-07",
+            "instructions": "Script: okta_automated_account_management.py. Uses Okta APIs to collect account lifecycle monitoring and health evidence. Output: okta_automated_account_management.json",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "okta",
+              "iam",
+              "fedramp-20x",
+              "ksi-iam-07",
+              "account-management",
+              "lifecycle",
+              "automation"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Automated Account Management: Okta"
+            ],
+            "controls": []
+          }
+        }
+      },
+      "gitlab": {
+        "name": "GitLab",
+        "description": "GitLab evidence collection scripts",
+        "access_method": "GitLab API via Access Token",
+        "access_method_description": "The evidence fetcher scripts use the GitLab REST API which requires project access toekns: GITLAB_PROJECT_*_API_ACCESS_TOKEN and GITLAB_PROJECT_*_URL environment variables for multi-project support. Authentication uses Bearer token with Project Access Tokens scoped to individual projects. Read permissions are required.",
+        "logo": "fetchers/logos/gitlab.svg",
+        "scripts": {
+          "gitlab_ci_cd_pipeline_config": {
+            "script_file": "fetchers/gitlab/gitlab_ci_cd_pipeline_config.py",
+            "name": "GitLab CI/CD Pipeline Configuration",
+            "description": "Evidence for automated testing, security scanning, and deployment controls in .gitlab-ci.yml",
+            "id": "EVD-GITLAB-CICD-CONFIG",
+            "instructions": "Script: gitlab_ci_cd_pipeline_config.sh. Commands executed: GitLab API calls to retrieve project .gitlab-ci.yml and pipeline configuration",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "gitlab",
+              "cicd",
+              "security-scanning",
+              "testing"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Change Request",
+              "Input Validation",
+              "Security Lifecycle",
+              "Software Development Lifecycle Process"
+            ],
+            "controls": [
+              "CMT-01",
+              "CMT-03",
+              "PIY-04",
+              "VDR-01",
+              "VDR-AY-05",
+              "VDR-AY-06"
+            ]
+          },
+          "gitlab_project_summary": {
+            "script_file": "fetchers/gitlab/gitlab_project_summary.py",
+            "name": "GitLab Project Summary",
+            "description": "Evidence for repository configuration inventory including Terraform, Docker, and YAML configs",
+            "id": "EVD-GITLAB-PROJECT-SUMMARY",
+            "instructions": "Script: gitlab_project_summary.sh. Commands executed: GitLab API to list repository tree and file metadata",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "gitlab",
+              "inventory",
+              "terraform",
+              "docker",
+              "yaml"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Approved Software Enforcement",
+              "Change Request",
+              "Software Development Lifecycle Process"
+            ],
+            "controls": [
+              "CMT-01",
+              "CMT-02",
+              "CMT-03",
+              "MLA-05",
+              "SVC-01",
+              "SVC-04"
+            ]
+          },
+          "gitlab_merge_request_summary": {
+            "script_file": "fetchers/gitlab/gitlab_merge_request_summary.py",
+            "name": "GitLab Merge Request Summary",
+            "description": "Evidence for change management: approvals, reviews, discussions, and compliance metrics",
+            "id": "EVD-GITLAB-MR-SUMMARY",
+            "instructions": "Script: gitlab_merge_request_summary.sh. Commands executed: GitLab API to list merge requests, approvals, and discussions with pagination",
+            "dependencies": [
+              "python3"
+            ],
+            "tags": [
+              "gitlab",
+              "change-management",
+              "approvals",
+              "reviews"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Approved Software Enforcement",
+              "Change Request",
+              "Software Development Lifecycle Process"
+            ],
+            "controls": [
+              "CMT-01",
+              "CMT-02",
+              "CMT-03",
+              "MLA-05",
+              "SVC-01",
+              "SVC-04"
+            ]
+          }
+        }
+      },
+      "rippling": {
+        "name": "Rippling",
+        "description": "Rippling HR evidence collection scripts",
+        "access_method": "Rippling API via Bearer Token",
+        "access_method_description": "The evidence fetcher scripts use the Rippling REST API which requires RIPPLING_API_TOKEN environment variable. Authentication uses Bearer token authorization.",
+        "logo": "fetchers/logos/rippling.svg",
+        "scripts": {
+          "rippling_current_employees": {
+            "script_file": "fetchers/rippling/rippling_current_employees.py",
+            "name": "Rippling Current Employees",
+            "description": "Evidence for list of current active employees from Rippling",
+            "id": "EVD-RIPPLING-CURRENT-EMPLOYEES",
+            "instructions": "Script: rippling_current_employees.py. Commands executed: curl GET /platform/api/employees with limit/offset pagination",
+            "dependencies": [
+              "python3",
+              "curl"
+            ],
+            "tags": [
+              "hr",
+              "rippling",
+              "employees",
+              "current",
+              "completeness"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          },
+          "rippling_all_employees": {
+            "script_file": "fetchers/rippling/rippling_all_employees.py",
+            "name": "Rippling All Employees",
+            "description": "Evidence for list of all employees from Rippling including terminated",
+            "id": "EVD-RIPPLING-ALL-EMPLOYEES",
+            "instructions": "Script: rippling_all_employees.py. Commands executed: curl GET /platform/api/employees/include_terminated with limit/offset pagination",
+            "dependencies": [
+              "python3",
+              "curl"
+            ],
+            "tags": [
+              "hr",
+              "rippling",
+              "employees",
+              "terminated",
+              "completeness"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [],
+            "controls": []
+          }
+        }
+      },
+      "checkov": {
+        "name": "Checkov Security Scanning",
+        "description": "Infrastructure as Code security compliance scanning with Checkov",
+        "access_method": "Checkov CLI with optional GitLab API",
+        "access_method_description": "The evidence fetcher scripts use Checkov CLI tool which must be installed via 'pip install checkov'. For GitLab repository scanning, GitLab API access tokens are required (GITLAB_PROJECT_*_API_ACCESS_TOKEN). For local or URL-based scanning, no additional authentication is needed.",
+        "logo": "fetchers/logos/checkov.png",
+        "scripts": {
+          "checkov_terraform": {
+            "script_file": "fetchers/checkov/checkov_terraform.sh",
+            "name": "Checkov Terraform Security",
+            "description": "Evidence for Terraform infrastructure security compliance using Checkov",
+            "id": "EVD-CHECKOV-TERRAFORM",
+            "instructions": "Script: checkov_terraform.sh. Commands executed: checkov --framework terraform with flexible configuration options. Supports multiple source types (GitLab, GitHub, local, URL) and customizable check filtering.",
+            "dependencies": [
+              "checkov",
+              "git",
+              "jq"
+            ],
+            "tags": [
+              "checkov",
+              "terraform",
+              "security",
+              "compliance",
+              "iac",
+              "infrastructure"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Approved Software Enforcement",
+              "Baseline Configuration Exceptions",
+              "Baseline Configuration Standard",
+              "Code and Configuration Evaluation",
+              "Configuration Checks: CIS L2"
+            ],
+            "controls": [
+              "CMT-02",
+              "CNA-04",
+              "CNA-07",
+              "MLA-05",
+              "SVC-01",
+              "SVC-04",
+              "SVC-05"
+            ]
+          },
+          "checkov_kubernetes": {
+            "script_file": "fetchers/checkov/checkov_kubernetes.sh",
+            "name": "Checkov Kubernetes Security",
+            "description": "Evidence for Kubernetes manifest security compliance using Checkov",
+            "id": "EVD-CHECKOV-KUBERNETES",
+            "instructions": "Script: checkov_kubernetes.sh. Commands executed: checkov --framework kubernetes with flexible configuration options. Supports multiple source types (GitLab, GitHub, local, URL) and customizable check filtering.",
+            "dependencies": [
+              "checkov",
+              "git",
+              "jq"
+            ],
+            "tags": [
+              "checkov",
+              "kubernetes",
+              "security",
+              "compliance",
+              "k8s",
+              "manifests"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Approved Software Enforcement",
+              "Baseline Configuration Exceptions",
+              "Baseline Configuration Standard",
+              "Code and Configuration Evaluation",
+              "Configuration Checks: CIS L2"
+            ],
+            "controls": [
+              "CMT-02",
+              "CNA-04",
+              "CNA-07",
+              "MLA-05",
+              "SVC-01",
+              "SVC-04",
+              "SVC-05"
+            ]
+          }
+        }
+      },
+      "ssllabs": {
+        "name": "Qualys SSL Labs",
+        "description": "TLS/SSL configuration and certificate scanning via the Qualys SSL Labs API v4",
+        "access_method": "Qualys SSL Labs API v4 with registered email",
+        "access_method_description": "Scans are performed via the public Qualys SSL Labs API v4. A one-time email registration is required at https://api.ssllabs.com/api/v4/register. No credentials beyond the registered email are needed.",
+        "logo": "fetchers/logos/ssllabs.svg",
+        "scripts": {
+          "ssllabs_tls_scan": {
+            "script_file": "fetchers/ssllabs/ssllabs_tls_scan.py",
+            "name": "SSL Labs TLS/SSL Scan",
+            "description": "Scans configured hosts via the Qualys SSL Labs API v4 and collects TLS grade, certificate validity, protocol support, and vulnerability evidence",
+            "id": "EVD-SSLLABS-TLS-SCAN",
+            "instructions": "Script: ssllabs_tls_scan.py. Calls the Qualys SSL Labs API v4 for each host in SSLLABS_HOSTS, polls until complete, and saves per-host JSON and a combined summary. Requires SSLLABS_EMAIL (registered with Qualys) and SSLLABS_HOSTS (comma-separated hostnames).",
+            "dependencies": [
+              "requests"
+            ],
+            "tags": [
+              "tls",
+              "ssl",
+              "certificates",
+              "encryption",
+              "network-security",
+              "qualys"
+            ],
+            "validation_rules": [],
+            "solution_capabilities": [
+              "Data in Transit Encryption",
+              "TLS Certificate Management",
+              "Cryptographic Protection"
+            ],
+            "controls": [
+              "SC-8",
+              "SC-8(1)",
+              "SC-17",
+              "SC-28",
+              "AC-17(2)",
+              "CM-6"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
