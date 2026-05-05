@@ -35,6 +35,16 @@ type UploadFinishedMsg struct {
 	Err     error
 }
 
+// OpenSecretsForReviewMsg routes from Review to the Secrets screen when the
+// upload trigger discovers PARAMIFY_UPLOAD_API_TOKEN is unset (e.g. cleared
+// mid-session). The root model returns to Review after Secrets is dismissed.
+type OpenSecretsForReviewMsg struct{}
+
+// ParamifyFactory builds a fresh uploader using current secret values. The
+// factory is invoked at upload time, not at Review construction, so secrets
+// edited during the session take effect without restarting the TUI.
+type ParamifyFactory func() (uploader.Uploader, error)
+
 func runParamifyUpload(c uploader.Uploader, dir string) tea.Cmd {
 	return func() tea.Msg {
 		sum, err := c.ProcessEvidenceDir(context.Background(), dir)
@@ -55,9 +65,10 @@ type ReviewModel struct {
 	progress progress.Model
 	uploaded int
 
-	paramify      uploader.Uploader
-	uploadSummary uploader.Summary
-	uploadErr     error
+	store           secrets.Store
+	paramifyFactory ParamifyFactory
+	uploadSummary   uploader.Summary
+	uploadErr       error
 
 	width, height int
 }
@@ -80,8 +91,12 @@ func (m ReviewModel) WithEvidenceDir(dir string) ReviewModel {
 }
 
 // WithParamifyUpload enables Paramify upload from the Review screen.
-func (m ReviewModel) WithParamifyUpload(c uploader.Uploader) ReviewModel {
-	m.paramify = c
+// store is used to re-check PARAMIFY_UPLOAD_API_TOKEN at trigger time so the
+// upload re-routes to Secrets if the token was cleared during the session.
+// factory builds a fresh uploader with the latest environ at trigger time.
+func (m ReviewModel) WithParamifyUpload(store secrets.Store, factory ParamifyFactory) ReviewModel {
+	m.store = store
+	m.paramifyFactory = factory
 	return m
 }
 
@@ -104,7 +119,7 @@ func (m ReviewModel) Update(msg tea.Msg) (ReviewModel, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.progress.Width = msg.Width / 3
 	case uploadTickMsg:
-		if m.phase == uploadRunning && m.paramify == nil {
+		if m.phase == uploadRunning && m.paramifyFactory == nil {
 			m.uploaded++
 			if m.uploaded >= len(m.results) {
 				m.phase = uploadDone
@@ -150,21 +165,37 @@ func (m ReviewModel) Update(msg tea.Msg) (ReviewModel, tea.Cmd) {
 			if m.phase != uploadIdle {
 				break
 			}
-			if m.evidenceDir != "" && m.paramify != nil {
+			if m.evidenceDir == "" {
+				// Demo mode: play the upload progress animation.
 				m.phase = uploadRunning
-				return m, runParamifyUpload(m.paramify, m.evidenceDir)
+				m.uploaded = 0
+				return m, tea.Tick(180*time.Millisecond, func(time.Time) tea.Msg {
+					return uploadTickMsg{}
+				})
 			}
-			if m.evidenceDir != "" && m.paramify == nil {
+			if m.paramifyFactory == nil {
 				m.phase = uploadRunning
 				return m, func() tea.Msg {
 					return UploadFinishedMsg{Err: secrets.ErrNotConfigured}
 				}
 			}
+			if m.store != nil {
+				if _, found, err := m.store.Get(secrets.KeyParamifyUploadAPIToken); err == nil && !found {
+					return m, func() tea.Msg { return OpenSecretsForReviewMsg{} }
+				}
+			}
+			c, err := m.paramifyFactory()
+			if err != nil || c == nil {
+				m.phase = uploadRunning
+				return m, func() tea.Msg {
+					if err == nil {
+						err = secrets.ErrNotConfigured
+					}
+					return UploadFinishedMsg{Err: err}
+				}
+			}
 			m.phase = uploadRunning
-			m.uploaded = 0
-			return m, tea.Tick(180*time.Millisecond, func(time.Time) tea.Msg {
-				return uploadTickMsg{}
-			})
+			return m, runParamifyUpload(c, m.evidenceDir)
 		case key.Matches(msg, m.keys.Export):
 		case key.Matches(msg, m.keys.Back):
 			return m, func() tea.Msg { return RestartMsg{} }
@@ -359,7 +390,7 @@ func (m ReviewModel) View() string {
 	case uploadIdle:
 		uploadRow = app.StyleSubtle.Render("  press ") + app.StyleKey.Render("u") + app.StyleSubtle.Render(" to upload to paramify")
 	case uploadRunning:
-		if m.paramify != nil && m.evidenceDir != "" {
+		if m.paramifyFactory != nil && m.evidenceDir != "" {
 			uploadRow = "  " + app.StyleAccent.Render("uploading to Paramify…")
 			break
 		}
@@ -377,7 +408,7 @@ func (m ReviewModel) View() string {
 		case m.uploadErr != nil:
 			errText := m.uploadErr.Error()
 			if errors.Is(m.uploadErr, secrets.ErrNotConfigured) {
-				errText = "set PARAMIFY_UPLOAD_API_TOKEN before starting the TUI"
+				errText = "set PARAMIFY_UPLOAD_API_TOKEN in Secrets (press s on Welcome) or export it before launch"
 			}
 			uploadRow = lipgloss.JoinHorizontal(lipgloss.Top,
 				"  ",
@@ -385,7 +416,7 @@ func (m ReviewModel) View() string {
 				"  ",
 				app.StyleSubtle.Render(errText),
 			)
-		case m.paramify != nil && m.evidenceDir != "":
+		case m.paramifyFactory != nil && m.evidenceDir != "":
 			s := m.uploadSummary
 			uploadRow = "  " + app.StyleSuccess.Render("✓ upload complete ") +
 				app.StyleSubtle.Render(fmt.Sprintf(

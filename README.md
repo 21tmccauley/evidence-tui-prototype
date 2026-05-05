@@ -3,6 +3,12 @@
 A Bubble Tea prototype for selecting evidence fetchers, running them, reviewing
 the generated files, and optionally uploading evidence to Paramify.
 
+## Documentation
+
+- Architecture and design: [`docs/README.md`](docs/README.md) (diagrams,
+  design truths, ADRs, maintenance rule).
+- Code tour for new developers: [`WALKTHROUGH.md`](WALKTHROUGH.md).
+
 ## Run The TUI
 
 From this folder:
@@ -36,16 +42,20 @@ go run . \
 The app checks for local tools used by live runs: `aws`, `jq`, `bash`,
 `python3`, `kubectl`, and `curl`.
 
-### KnowBe4 Scans
+### Configure Secrets
 
-Before starting the TUI, export your KnowBe4 API key in the same shell:
+From the Welcome screen, press `s` to open the Secrets screen and set keys.
+By default, the app stores values in OS keychain and injects them into fetcher
+subprocess environment at runtime.
+
+For headless/CI workflows, you can still export env vars before launch:
 
 ```sh
 export KNOWBE4_API_KEY="your-knowbe4-api-key"
+export PARAMIFY_UPLOAD_API_TOKEN="..."
 go run . --demo=false --fetcher-repo-root ../evidence-fetchers
 ```
 
-The key is read from the environment and passed to the KnowBe4 fetcher scripts.
 Do not commit real API keys to this repo.
 
 ## Flags
@@ -90,15 +100,15 @@ go run . \
 Development-only override for the embedded
 `evidence_fetchers_catalog.json`.
 
+`--secrets-backend`
+
+Secrets backend selection: `merged` (default, keychain first with env fallback),
+`keychain`, or `env`.
+
 ## Uploading To Paramify
 
-To use the upload step in the review screen, set:
-
-```sh
-export PARAMIFY_UPLOAD_API_TOKEN="..."
-```
-
-Optional API override:
+Review upload uses `PARAMIFY_UPLOAD_API_TOKEN` from the Secrets screen or
+environment. Optional API override:
 
 ```sh
 export PARAMIFY_API_BASE_URL="https://app.paramify.com/api/v0"

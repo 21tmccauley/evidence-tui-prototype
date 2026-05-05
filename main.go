@@ -16,6 +16,7 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/root"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
 	"github.com/paramify/evidence-tui-prototype/internal/screens"
+	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 	"github.com/paramify/evidence-tui-prototype/internal/uploader"
 )
 
@@ -28,6 +29,7 @@ func main() {
 	region := flag.String("region", "", "AWS region (real runner)")
 	repoRoot := flag.String("fetcher-repo-root", "", "path to the evidence-fetchers checkout (real runner)")
 	outputRoot := flag.String("output-root", "", "explicit per-run evidence directory (overrides XDG default)")
+	secretsBackend := flag.String("secrets-backend", "merged", "secrets backend: merged|keychain|env")
 	flag.Parse()
 
 	if *catalogPath != "" {
@@ -49,34 +51,46 @@ func main() {
 	sessionLog.Logf("paramify-fetcher start demo=%t catalog=%q profile=%q region=%q output-root=%q",
 		*demo, *catalogPath, *profile, *region, *outputRoot)
 
+	secretStore, err := buildSecretsStore(*secretsBackend)
+	if err != nil {
+		die(2, "secrets backend error: %v", err)
+	}
+	runtimeEnv, err := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+	if err != nil {
+		die(2, "secrets setup error: %v", err)
+	}
+
 	var (
-		r              runner.Runner
-		welcomeOpts    screens.WelcomeOptions
-		evidenceDir    string
-		paramifyClient uploader.Uploader
+		r               runner.Runner
+		welcomeOpts     screens.WelcomeOptions
+		evidenceDir     string
+		paramifyFactory screens.ParamifyFactory
 	)
 	if *demo {
 		r = mock.NewMockRunner(mock.Catalog())
 	} else {
 		var repoAbs string
-		r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, runTS)
+		r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, runTS, runtimeEnv)
 		welcomeOpts = realWelcomeOptions(*profile, *region)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
-		c, err := uploader.NewPython(uploader.PythonConfig{
-			FetcherRepoRoot: repoAbs,
-			BaseURL:         os.Getenv("PARAMIFY_API_BASE_URL"),
-		})
-		if err != nil {
-			sessionLog.Logf("python uploader unavailable: %v", err)
-		} else {
-			paramifyClient = c
+		paramifyFactory = func() (uploader.Uploader, error) {
+			env, err := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+			if err != nil {
+				return nil, err
+			}
+			return uploader.NewPython(uploader.PythonConfig{
+				FetcherRepoRoot: repoAbs,
+				BaseURL:         firstEnvValue(env, secrets.KeyParamifyAPIBaseURL),
+				Environ:         env,
+			})
 		}
 	}
 
 	rootModel := root.NewWithOptions(r, root.Options{
-		Welcome:     welcomeOpts,
-		EvidenceDir: evidenceDir,
-		Paramify:    paramifyClient,
+		Welcome:         welcomeOpts,
+		EvidenceDir:     evidenceDir,
+		ParamifyFactory: paramifyFactory,
+		Secrets:         secretStore,
 	})
 
 	p := tea.NewProgram(rootModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -148,7 +162,7 @@ func firstNonEmpty(values ...string) string {
 
 // buildRealRunner validates flags, builds the real runner, and returns
 // runner, evidence directory, and absolute fetcher repo root.
-func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag, runTS string) (runner.Runner, string, string) {
+func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag, runTS string, env []string) (runner.Runner, string, string) {
 	if repoRoot == "" {
 		die(2, "--fetcher-repo-root is required when --demo=false")
 	}
@@ -183,7 +197,37 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag, run
 			Cache:   preflightCachePath,
 			Checker: runner.CLIAuthChecker{},
 		}},
+		Environ: env,
 	}), evidenceDir, repoAbs
+}
+
+func buildSecretsStore(backend string) (secrets.Store, error) {
+	envStore := secrets.Env{Environ: os.Environ()}
+	keychainStore := secrets.Keychain{Service: secrets.DefaultKeychainService}
+	switch backend {
+	case "env":
+		return envStore, nil
+	case "keychain":
+		return keychainStore, nil
+	case "merged":
+		return secrets.Merged{
+			Primary:  keychainStore,
+			Fallback: envStore,
+			Writer:   keychainStore,
+		}, nil
+	default:
+		return nil, fmt.Errorf("unsupported secrets backend %q", backend)
+	}
+}
+
+func firstEnvValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if len(entry) > len(prefix) && entry[:len(prefix)] == prefix {
+			return entry[len(prefix):]
+		}
+	}
+	return ""
 }
 
 // resolveEvidenceDir returns the per-run evidence directory: --output-root if

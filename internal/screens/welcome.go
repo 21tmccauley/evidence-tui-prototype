@@ -81,6 +81,7 @@ func NewWelcomeWithOptions(keys app.KeyMap, opts WelcomeOptions) WelcomeModel {
 }
 
 type SelectedProfileMsg struct{ Profile Profile }
+type OpenSecretsMsg struct{}
 
 type profileCheckDoneMsg struct {
 	profile Profile
@@ -157,6 +158,11 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 			m.statusError = false
 			m.status = fmt.Sprintf("running aws sso login for %s", p.Name)
 			return m, m.loginCmd(p)
+		case msg.String() == "s":
+			if m.busy() {
+				return m, nil
+			}
+			return m, func() tea.Msg { return OpenSecretsMsg{} }
 		}
 	}
 	return m, nil
@@ -266,6 +272,7 @@ func (m WelcomeModel) View() string {
 	hints := []components.Hint{
 		{Key: "↑/↓", Desc: "move"},
 		{Key: "enter", Desc: "continue"},
+		{Key: "s", Desc: "secrets"},
 	}
 	if m.ssoReady {
 		hints = append(hints, components.Hint{Key: "o", Desc: "sso login"})

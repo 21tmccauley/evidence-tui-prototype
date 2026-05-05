@@ -14,6 +14,7 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/app"
 	"github.com/paramify/evidence-tui-prototype/internal/components"
 	"github.com/paramify/evidence-tui-prototype/internal/mock"
+	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
 type SelectionConfirmedMsg struct {
@@ -31,8 +32,10 @@ type SelectModel struct {
 	keys    app.KeyMap
 	catalog []mock.Fetcher
 	sources []string
+	store   secrets.Store
 
 	profile string
+	idToSrc map[mock.FetcherID]string
 
 	focused    pane
 	sourceIdx  int
@@ -42,12 +45,35 @@ type SelectModel struct {
 	filter     textinput.Model
 	filterMode bool
 
+	status      string
+	statusError bool
+
 	width, height int
 }
 
-func NewSelect(keys app.KeyMap, profile string) SelectModel {
+// MissingSecret describes a required secret key that isn't set, plus the
+// fetcher names from the current selection that need it.
+type MissingSecret struct {
+	Key      string
+	Fetchers []string
+}
+
+// WithStatus sets a transient status banner rendered on the Select screen.
+// Used by the root model to surface errors from gate checks instead of
+// silently no-op'ing on enter.
+func (m SelectModel) WithStatus(msg string, isError bool) SelectModel {
+	m.status = msg
+	m.statusError = isError
+	return m
+}
+
+func NewSelect(keys app.KeyMap, profile string, store secrets.Store) SelectModel {
 	cat := mock.Catalog()
 	sources := mock.Sources(cat)
+	idToSrc := make(map[mock.FetcherID]string, len(cat))
+	for _, f := range cat {
+		idToSrc[f.ID] = f.Source
+	}
 
 	ti := textinput.New()
 	ti.Placeholder = "filter…"
@@ -58,7 +84,9 @@ func NewSelect(keys app.KeyMap, profile string) SelectModel {
 		keys:     keys,
 		catalog:  cat,
 		sources:  sources,
+		store:    store,
 		profile:  profile,
+		idToSrc:  idToSrc,
 		focused:  paneSources,
 		selected: map[mock.FetcherID]bool{},
 		filter:   ti,
@@ -108,6 +136,10 @@ func (m SelectModel) Update(msg tea.Msg) (SelectModel, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.filter.Width = msg.Width / 3
 	case tea.KeyMsg:
+		if m.status != "" && !m.filterMode {
+			m.status = ""
+			m.statusError = false
+		}
 		if m.filterMode {
 			switch msg.String() {
 			case "esc":
@@ -199,6 +231,8 @@ func (m SelectModel) Update(msg tea.Msg) (SelectModel, tea.Cmd) {
 			return m, func() tea.Msg {
 				return SelectionConfirmedMsg{IDs: ids}
 			}
+		case msg.String() == "s":
+			return m, func() tea.Msg { return OpenSecretsMsg{} }
 		}
 	}
 	return m, nil
@@ -256,6 +290,10 @@ func (m SelectModel) View() string {
 			label = fmt.Sprintf("%-12s %s", s,
 				app.StyleSuccess.Render(fmt.Sprintf("%d/%d", selCount, counts[s])),
 			)
+		}
+		secretBadge := m.sourceSecretBadge(s)
+		if secretBadge != "" {
+			label = padRight(label, 26) + " " + secretBadge
 		}
 		if i == m.sourceIdx {
 			marker := app.StyleAccent.Render("▸ ")
@@ -353,15 +391,98 @@ func (m SelectModel) View() string {
 		{Key: "a", Desc: "all"},
 		{Key: "/", Desc: "filter"},
 		{Key: "enter", Desc: "run"},
+		{Key: "s", Desc: "secrets"},
 		{Key: "q", Desc: "quit"},
 	})
 
 	statusBar := lipgloss.NewStyle().Padding(0, 1).Render(status)
-	page := lipgloss.JoinVertical(lipgloss.Left, header, body, statusBar, footer)
+	parts := []string{header, body}
+	if m.status != "" {
+		style := app.StyleInfo
+		if m.statusError {
+			style = app.StyleDanger
+		}
+		parts = append(parts, lipgloss.NewStyle().Padding(0, 1).Render(style.Render(m.status)))
+	}
+	parts = append(parts, statusBar, footer)
+	page := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	used := lipgloss.Height(page)
 	if pad := height - used; pad > 0 {
 		page = page + strings.Repeat("\n", pad)
 	}
 	return page
+}
+
+// MissingSecretsForSelection returns the required secret keys not yet set in
+// the store, each annotated with the fetcher names from ids that need it.
+func (m SelectModel) MissingSecretsForSelection(ids []mock.FetcherID) ([]MissingSecret, error) {
+	nameByID := map[mock.FetcherID]string{}
+	for _, f := range m.catalog {
+		nameByID[f.ID] = f.Name
+	}
+
+	needsByKey := map[string]map[string]bool{}
+	for _, id := range ids {
+		source := m.idToSrc[id]
+		keys := secrets.RequiredKeysForSource(source)
+		if len(keys) == 0 {
+			continue
+		}
+		name := nameByID[id]
+		for _, k := range keys {
+			if _, ok := needsByKey[k]; !ok {
+				needsByKey[k] = map[string]bool{}
+			}
+			needsByKey[k][name] = true
+		}
+	}
+
+	out := []MissingSecret{}
+	for key, namesSet := range needsByKey {
+		_, found, err := m.store.Get(key)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			continue
+		}
+		names := make([]string, 0, len(namesSet))
+		for n := range namesSet {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		out = append(out, MissingSecret{Key: key, Fetchers: names})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, nil
+}
+
+// MissingRequiredKeysForSelection returns just the missing keys, used by the
+// post-Secrets recheck path that doesn't need fetcher provenance.
+func (m SelectModel) MissingRequiredKeysForSelection(ids []mock.FetcherID) ([]string, error) {
+	missing, err := m.MissingSecretsForSelection(ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(missing))
+	for _, ms := range missing {
+		out = append(out, ms.Key)
+	}
+	return out, nil
+}
+
+func (m SelectModel) sourceSecretBadge(source string) string {
+	required := secrets.RequiredKeysForSource(source)
+	if len(required) == 0 {
+		return app.StyleSubtle.Render("secrets: none")
+	}
+	missing, err := secrets.MissingRequiredKeys(m.store, required)
+	if err != nil {
+		return app.StyleWarning.Render("secrets: unknown")
+	}
+	if len(missing) == 0 {
+		return app.StyleSuccess.Render("secrets: ready")
+	}
+	return app.StyleWarning.Render(fmt.Sprintf("secrets: missing %d", len(missing)))
 }

@@ -9,15 +9,17 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
+	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
 	"github.com/paramify/evidence-tui-prototype/internal/screens"
-	"github.com/paramify/evidence-tui-prototype/internal/uploader"
+	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
 type Screen int
 
 const (
 	ScreenWelcome Screen = iota
+	ScreenSecrets
 	ScreenSelect
 	ScreenRun
 	ScreenReview
@@ -31,12 +33,17 @@ type Model struct {
 	height      int
 	profile     string
 	region      string
-	runner      runner.Runner
-	welcomeOpts screens.WelcomeOptions
-	evidenceDir string
-	paramify    uploader.Uploader
+	runner          runner.Runner
+	welcomeOpts     screens.WelcomeOptions
+	evidenceDir     string
+	paramifyFactory screens.ParamifyFactory
+	secrets         secrets.Store
+	pendingRun      []mock.FetcherID
+	pendingReview   bool
+	secretBack      Screen
 
 	welcome screens.WelcomeModel
+	sec     screens.SecretsModel
 	sel     screens.SelectModel
 	run     screens.RunModel
 	review  screens.ReviewModel
@@ -53,20 +60,27 @@ type Options struct {
 	// EvidenceDir is shown on Review when non-empty (empty in demo).
 	EvidenceDir string
 
-	// Paramify enables upload from Review when non-nil.
-	Paramify uploader.Uploader
+	// ParamifyFactory builds an uploader on demand using the latest secrets.
+	// Non-nil enables real upload; nil keeps Review in demo animation mode.
+	ParamifyFactory screens.ParamifyFactory
+
+	// Secrets enables editing secret values from the TUI.
+	Secrets secrets.Store
 }
 
 func NewWithOptions(r runner.Runner, opts Options) Model {
 	keys := app.DefaultKeys()
 	return Model{
-		keys:        keys,
-		screen:      ScreenWelcome,
-		welcome:     screens.NewWelcomeWithOptions(keys, opts.Welcome),
-		runner:      r,
-		welcomeOpts: opts.Welcome,
-		evidenceDir: opts.EvidenceDir,
-		paramify:    opts.Paramify,
+		keys:            keys,
+		screen:          ScreenWelcome,
+		welcome:         screens.NewWelcomeWithOptions(keys, opts.Welcome),
+		runner:          r,
+		welcomeOpts:     opts.Welcome,
+		evidenceDir:     opts.EvidenceDir,
+		paramifyFactory: opts.ParamifyFactory,
+		secrets:         opts.Secrets,
+		sec:             screens.NewSecrets(keys, opts.Secrets),
+		secretBack:      ScreenWelcome,
 	}
 }
 
@@ -104,9 +118,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.welcome = m.welcome.Resize(msg.Width, msg.Height)
+		m.sec = m.sec.Resize(msg.Width, msg.Height)
 		m.sel = m.sel.Resize(msg.Width, msg.Height)
 		m.run = m.run.Resize(msg.Width, msg.Height)
 		m.review = m.review.Resize(msg.Width, msg.Height)
+
+	case screens.OpenSecretsMsg:
+		if m.secrets == nil {
+			return m, nil
+		}
+		m.pendingRun = nil
+		m.secretBack = m.screen
+		m.sec = screens.NewSecrets(m.keys, m.secrets).Resize(m.width, m.height)
+		m.screen = ScreenSecrets
+		return m, m.sec.Init()
 
 	case screens.SelectedProfileMsg:
 		m.profile = msg.Profile.Name
@@ -114,11 +139,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if configurable, ok := m.runner.(runner.ProfileConfigurer); ok {
 			configurable.ConfigureProfile(msg.Profile.Name, msg.Profile.Region)
 		}
-		m.sel = screens.NewSelect(m.keys, m.profile).Resize(m.width, m.height)
+		m.sel = screens.NewSelect(m.keys, m.profile, m.secrets).Resize(m.width, m.height)
 		m.screen = ScreenSelect
 		return m, m.sel.Init()
 
 	case screens.SelectionConfirmedMsg:
+		missing, err := m.sel.MissingSecretsForSelection(msg.IDs)
+		if err != nil {
+			m.sel = m.sel.WithStatus("could not check secrets store: "+err.Error(), true)
+			return m, nil
+		}
+		if len(missing) > 0 {
+			m.pendingRun = append([]mock.FetcherID(nil), msg.IDs...)
+			m.secretBack = ScreenSelect
+			focusKeys := make([]string, len(missing))
+			for i, ms := range missing {
+				focusKeys[i] = ms.Key
+			}
+			m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
+				FocusKeys: focusKeys,
+				Prompt:    formatMissingPrompt(missing),
+			}).Resize(m.width, m.height)
+			m.screen = ScreenSecrets
+			return m, m.sec.Init()
+		}
 		m.run = screens.NewRun(m.keys, m.profile, msg.IDs, m.runner).Resize(m.width, m.height)
 		m.screen = ScreenRun
 		return m, m.run.Init()
@@ -126,17 +170,65 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.RunCompleteMsg:
 		rev := screens.NewReview(m.keys, m.profile, msg.Results).
 			WithEvidenceDir(m.evidenceDir)
-		if m.paramify != nil {
-			rev = rev.WithParamifyUpload(m.paramify)
+		if m.paramifyFactory != nil {
+			rev = rev.WithParamifyUpload(m.secrets, m.paramifyFactory)
 		}
 		m.review = rev.Resize(m.width, m.height)
 		m.screen = ScreenReview
 		return m, m.review.Init()
 
+	case screens.OpenSecretsForReviewMsg:
+		if m.secrets == nil {
+			return m, nil
+		}
+		m.pendingReview = true
+		m.secretBack = ScreenReview
+		m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
+			FocusKeys: []string{secrets.KeyParamifyUploadAPIToken},
+			Prompt:    "Paramify upload needs PARAMIFY_UPLOAD_API_TOKEN before it can run",
+		}).Resize(m.width, m.height)
+		m.screen = ScreenSecrets
+		return m, m.sec.Init()
+
 	case screens.RestartMsg:
 		m.welcome = screens.NewWelcomeWithOptions(m.keys, m.welcomeOpts).Resize(m.width, m.height)
+		m.pendingRun = nil
 		m.screen = ScreenWelcome
 		return m, m.welcome.Init()
+
+	case screens.SecretsDoneMsg:
+		if m.pendingReview {
+			m.pendingReview = false
+			m.screen = ScreenReview
+			return m, nil
+		}
+		if len(m.pendingRun) > 0 {
+			missing, err := m.sel.MissingRequiredKeysForSelection(m.pendingRun)
+			if err != nil {
+				m.sel = m.sel.WithStatus("could not check secrets store: "+err.Error(), true)
+				m.screen = ScreenSelect
+				return m, nil
+			}
+			if len(missing) == 0 {
+				ids := append([]mock.FetcherID(nil), m.pendingRun...)
+				m.pendingRun = nil
+				m.run = screens.NewRun(m.keys, m.profile, ids, m.runner).Resize(m.width, m.height)
+				m.screen = ScreenRun
+				return m, m.run.Init()
+			}
+			m.sel = m.sel.WithStatus("still missing required secrets — "+strings.Join(missing, ", "), true)
+			m.screen = ScreenSelect
+			return m, nil
+		}
+		m.welcome = screens.NewWelcomeWithOptions(m.keys, m.welcomeOpts).Resize(m.width, m.height)
+		switch m.secretBack {
+		case ScreenSelect:
+			m.screen = ScreenSelect
+			return m, nil
+		default:
+			m.screen = ScreenWelcome
+			return m, m.welcome.Init()
+		}
 
 	case screens.QuitMsg:
 		return m, tea.Quit
@@ -146,6 +238,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 	case ScreenWelcome:
 		m.welcome, cmd = m.welcome.Update(msg)
+	case ScreenSecrets:
+		m.sec, cmd = m.sec.Update(msg)
 	case ScreenSelect:
 		m.sel, cmd = m.sel.Update(msg)
 	case ScreenRun:
@@ -167,6 +261,8 @@ func (m Model) screenView() string {
 	switch m.screen {
 	case ScreenWelcome:
 		return m.welcome.View()
+	case ScreenSecrets:
+		return m.sec.View()
 	case ScreenSelect:
 		return m.sel.View()
 	case ScreenRun:
@@ -230,6 +326,15 @@ func (m Model) helpSections() []helpSection {
 			{key: "up/down or k/j", desc: "move between profiles"},
 			{key: "enter", desc: "check credentials and continue"},
 			{key: "o", desc: "run SSO login when prompted"},
+			{key: "s", desc: "open secrets"},
+		}
+	case ScreenSecrets:
+		current.title = "Secrets"
+		current.items = []helpItem{
+			{key: "up/down or k/j", desc: "move between secret keys"},
+			{key: "enter", desc: "edit or save selected key"},
+			{key: "x", desc: "clear selected key"},
+			{key: "esc/b", desc: "back to welcome"},
 		}
 	case ScreenSelect:
 		current.title = "Select Fetchers"
@@ -240,6 +345,7 @@ func (m Model) helpSections() []helpSection {
 			{key: "space", desc: "toggle fetcher"},
 			{key: "a", desc: "select or clear visible fetchers"},
 			{key: "/", desc: "filter fetchers"},
+			{key: "s", desc: "open secrets"},
 			{key: "enter", desc: "run selected fetchers"},
 		}
 	case ScreenRun:
@@ -273,6 +379,24 @@ func (m Model) helpSections() []helpSection {
 		},
 	}
 	return []helpSection{current, global}
+}
+
+// formatMissingPrompt builds the multi-line warning shown atop the Secrets
+// screen when the user tries to run fetchers that need unset secrets.
+func formatMissingPrompt(missing []screens.MissingSecret) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	lines := []string{"missing required secrets:"}
+	for _, ms := range missing {
+		names := strings.Join(ms.Fetchers, ", ")
+		if names == "" {
+			lines = append(lines, fmt.Sprintf("  · %s", ms.Key))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("  · %s — %s", ms.Key, names))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func clampInt(v, min, max int) int {

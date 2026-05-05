@@ -124,6 +124,28 @@ func TestRoot_OmitsEvidenceDirWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestRoot_SelectionMissingSecretRedirectsToSecretsThenRuns(t *testing.T) {
+	r := mock.NewMockRunner(mock.Catalog())
+	mem := secrets.NewMemory()
+	var m tea.Model = NewWithOptions(r, Options{Secrets: mem})
+
+	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
+	m, _ = m.Update(screens.SelectionConfirmedMsg{IDs: []mock.FetcherID{"EVD-HIGH-RISK-TRAINING"}})
+
+	if v := m.View(); !strings.Contains(v, "missing required secrets:") || !strings.Contains(v, secrets.KeyKnowBe4APIKey) {
+		t.Fatalf("expected redirect to secrets screen with missing-key prompt, got:\n%s", v)
+	}
+
+	if err := mem.Set(secrets.KeyKnowBe4APIKey, "test-key"); err != nil {
+		t.Fatalf("set knowbe4 key: %v", err)
+	}
+	m, _ = m.Update(screens.SecretsDoneMsg{})
+	if v := m.View(); !strings.Contains(v, "complete") {
+		t.Fatalf("expected run screen after saving required secret, got:\n%s", v)
+	}
+}
+
 func first(s string, n int) string {
 	if len(s) <= n {
 		return s
