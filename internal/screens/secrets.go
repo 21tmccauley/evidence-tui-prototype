@@ -458,7 +458,9 @@ func (m SecretsModel) renderFocusedKeys(width int) string {
 		if spec.Description != "" {
 			row += "\n" + app.StyleSubtle.Render("    "+spec.Description)
 		}
-		rows = append(rows, prefix+style.Render(row))
+		// Join marker beside the bordered block; string concat would prepend
+		// the marker only to the first line and break border alignment.
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, prefix, style.Render(row)))
 	}
 	if len(rows) == 0 {
 		rows = append(rows, app.StyleSubtle.Render("  (no keys to display)"))
@@ -539,7 +541,7 @@ func (m SecretsModel) saveCmd(key, value string) tea.Cmd {
 
 // buildSecretsSources returns the left-pane sources to display and a flag
 // indicating whether the screen is in single-section "focused" mode (i.e.
-// constructed via SecretsOptions.FocusKeys, used by Review's upload detour).
+// constructed via SecretsOptions.FocusKeys, used by Review's Paramify upload detour).
 //
 // Default mode: paramify pseudo-source pinned first, then every catalog
 // source from mock.Sources() in catalog order. Sources without a table

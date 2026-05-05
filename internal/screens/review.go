@@ -37,7 +37,9 @@ type UploadFinishedMsg struct {
 
 // OpenSecretsForReviewMsg routes from Review to the Secrets screen when the
 // upload trigger discovers PARAMIFY_UPLOAD_API_TOKEN is unset (e.g. cleared
-// mid-session). The root model returns to Review after Secrets is dismissed.
+// mid-session). Secrets opens in focused mode so the operator can set the
+// token and PARAMIFY_API_BASE_URL. The root model returns to Review after
+// Secrets is dismissed.
 type OpenSecretsForReviewMsg struct{}
 
 // ParamifyFactory builds a fresh uploader using current secret values. The
@@ -91,7 +93,7 @@ func (m ReviewModel) WithEvidenceDir(dir string) ReviewModel {
 }
 
 // WithParamifyUpload enables Paramify upload from the Review screen.
-// store is used to re-check PARAMIFY_UPLOAD_API_TOKEN at trigger time so the
+// store is used to re-check PARAMIFY_UPLOAD_API_TOKEN at trigger time so
 // upload re-routes to Secrets if the token was cleared during the session.
 // factory builds a fresh uploader with the latest environ at trigger time.
 func (m ReviewModel) WithParamifyUpload(store secrets.Store, factory ParamifyFactory) ReviewModel {

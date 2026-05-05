@@ -166,8 +166,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingReview = true
 		m.secretBack = ScreenReview
 		m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
-			FocusKeys: []string{secrets.KeyParamifyUploadAPIToken},
-			Prompt:    "Paramify upload needs PARAMIFY_UPLOAD_API_TOKEN before it can run",
+			FocusKeys: []string{secrets.KeyParamifyUploadAPIToken, secrets.KeyParamifyAPIBaseURL},
+			Prompt: "Paramify upload needs PARAMIFY_UPLOAD_API_TOKEN before it can run.\n" +
+				"Set PARAMIFY_API_BASE_URL if your Paramify API is not at the default host.",
 		}).Resize(m.width, m.height)
 		m.screen = ScreenSecrets
 		return m, m.sec.Init()
