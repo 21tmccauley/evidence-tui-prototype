@@ -36,22 +36,28 @@ Today they share one workflow; if they ever diverge, that's an ADR.
 
 1. **Launch the TUI** (single binary; live mode requires
    `--fetcher-repo-root`).
-2. **Configure secrets** — either up front from the Welcome screen, or
-   skip and let the Select-screen gate prompt for any required keys
-   missing for the current selection.
+2. **Configure secrets** — open Secrets from Welcome (or Select) at any
+   time. The Secrets screen lists every catalog source plus a pinned
+   Paramify entry; the operator sets whichever keys their selection
+   needs. The TUI does not decide what's required for a given run.
 3. **Select fetchers.** The selection is saveable as a named **preset**
    that records both the chosen fetchers and the secrets they require,
    so future runs can be a one-step "load preset → run". *(Preset
    persistence is the documented intent — see Open questions for its
    current implementation status.)*
-4. **Required-secret check** gates the transition into Run; if anything
-   is missing the operator is routed to Secrets and back.
+4. **Run starts immediately on confirmed selection.** Missing keys
+   surface as fetcher failures (`runner.Real` fail-fasts AWS preflight
+   and KnowBe4; everything else fails inside the script with its own
+   error). The operator opens Secrets, fixes the key, retries the
+   failed card.
 5. **Scans run** in parallel under the runner.
 6. **Review** — the operator inspects results and chooses one of:
    - **Export locally** — the evidence directory on disk is the
      deliverable.
    - **Upload to Paramify** — the in-app uploader pushes the evidence
-     directory to the Paramify API.
+     directory to the Paramify API. This step *is* gated:
+     `PARAMIFY_UPLOAD_API_TOKEN` must be set, and Review routes the
+     operator through Secrets if it isn't.
 7. **Done.**
 
 ### Primary use cycle

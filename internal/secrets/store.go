@@ -10,13 +10,12 @@ const (
 	KeyParamifyUploadAPIToken = "PARAMIFY_UPLOAD_API_TOKEN"
 	KeyParamifyAPIBaseURL     = "PARAMIFY_API_BASE_URL"
 	KeyKnowBe4APIKey          = "KNOWBE4_API_KEY"
+	KeyOktaAPIToken           = "OKTA_API_TOKEN"
+	KeyOktaOrgURL             = "OKTA_ORG_URL"
+	KeyRipplingAPIToken       = "RIPPLING_API_TOKEN"
+	KeySentinelOneAPIURL      = "SENTINELONE_API_URL"
+	KeySentinelOneAPIToken    = "SENTINELONE_API_TOKEN"
 )
-
-var knownKeys = []string{
-	KeyParamifyUploadAPIToken,
-	KeyParamifyAPIBaseURL,
-	KeyKnowBe4APIKey,
-}
 
 // ErrNotConfigured is returned when the operator has not supplied an upload
 // token via the supported configuration path.
@@ -52,34 +51,12 @@ type ServiceSecret struct {
 	Description string
 }
 
-var serviceSecrets = []ServiceSecret{
-	{
-		ServiceID:   "paramify",
-		ServiceName: "Paramify",
-		Key:         KeyParamifyUploadAPIToken,
-		Optional:    false,
-		Description: "required to upload evidence sets",
-	},
-	{
-		ServiceID:   "paramify",
-		ServiceName: "Paramify",
-		Key:         KeyParamifyAPIBaseURL,
-		Optional:    true,
-		Description: "optional API URL override",
-	},
-	{
-		ServiceID:   "knowbe4",
-		ServiceName: "KnowBe4",
-		Key:         KeyKnowBe4APIKey,
-		Optional:    false,
-		Description: "required for KnowBe4 scans",
-	},
-}
-
-// ValidateKey rejects unknown secret keys so callers cannot accidentally store
-// unrelated process environment in keychain-backed stores.
+// ValidateKey rejects unknown secret keys so callers cannot accidentally
+// store unrelated process environment in keychain-backed stores. The
+// allowlist is derived from AllSecretKeys() so adding a key in one place
+// enables it everywhere.
 func ValidateKey(key string) error {
-	for _, k := range knownKeys {
+	for _, k := range allKeysCached() {
 		if key == k {
 			return nil
 		}
@@ -96,27 +73,15 @@ func keysForSet(set map[string]bool) []string {
 	return keys
 }
 
+// requiredRuntimeKeys returns every key the TUI may inject into the fetcher
+// subprocess environment. Backed by AllSecretKeys() so it tracks the table.
 func requiredRuntimeKeys() []string {
-	return []string{
-		KeyParamifyUploadAPIToken,
-		KeyParamifyAPIBaseURL,
-		KeyKnowBe4APIKey,
-	}
+	return AllSecretKeys()
 }
 
 // RuntimeKeys returns all keys currently injected into child subprocess env.
 func RuntimeKeys() []string {
-	keys := requiredRuntimeKeys()
-	out := make([]string, len(keys))
-	copy(out, keys)
-	return out
-}
-
-// KnownServiceSecrets returns canonical service/key metadata for the TUI.
-func KnownServiceSecrets() []ServiceSecret {
-	out := make([]ServiceSecret, len(serviceSecrets))
-	copy(out, serviceSecrets)
-	return out
+	return AllSecretKeys()
 }
 
 func paramifyUploadTokenFromStore(s Store) (string, error) {

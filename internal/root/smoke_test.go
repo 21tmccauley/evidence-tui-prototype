@@ -124,7 +124,12 @@ func TestRoot_OmitsEvidenceDirWhenEmpty(t *testing.T) {
 	}
 }
 
-func TestRoot_SelectionMissingSecretRedirectsToSecretsThenRuns(t *testing.T) {
+// The TUI no longer gates Run on per-source secret presence: the operator
+// confirms a selection and Run starts immediately. Missing keys surface as
+// fetcher failures (runner.Real fail-fasts AWS preflight and KnowBe4;
+// everything else fails inside the script). The operator opens Secrets
+// from Run / Select to fix the key and retries.
+func TestRoot_SelectionWithoutSecretsGoesStraightToRun(t *testing.T) {
 	r := mock.NewMockRunner(mock.Catalog())
 	mem := secrets.NewMemory()
 	var m tea.Model = NewWithOptions(r, Options{Secrets: mem})
@@ -133,16 +138,12 @@ func TestRoot_SelectionMissingSecretRedirectsToSecretsThenRuns(t *testing.T) {
 	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
 	m, _ = m.Update(screens.SelectionConfirmedMsg{IDs: []mock.FetcherID{"EVD-HIGH-RISK-TRAINING"}})
 
-	if v := m.View(); !strings.Contains(v, "missing required secrets:") || !strings.Contains(v, secrets.KeyKnowBe4APIKey) {
-		t.Fatalf("expected redirect to secrets screen with missing-key prompt, got:\n%s", v)
+	v := m.View()
+	if !strings.Contains(v, "complete") {
+		t.Fatalf("expected run screen, got:\n%s", first(v, 200))
 	}
-
-	if err := mem.Set(secrets.KeyKnowBe4APIKey, "test-key"); err != nil {
-		t.Fatalf("set knowbe4 key: %v", err)
-	}
-	m, _ = m.Update(screens.SecretsDoneMsg{})
-	if v := m.View(); !strings.Contains(v, "complete") {
-		t.Fatalf("expected run screen after saving required secret, got:\n%s", v)
+	if strings.Contains(v, "missing required secrets:") {
+		t.Fatalf("expected NO secrets detour for missing knowbe4 key, got:\n%s", first(v, 200))
 	}
 }
 

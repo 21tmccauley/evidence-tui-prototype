@@ -40,12 +40,19 @@ Key facts:
 - `--secrets-backend=merged|keychain|env` at startup picks the store.
   Default is `merged` (keychain primary, env fallback, keychain
   writer).
-- The Secrets screen only shows allowlisted keys (`secrets.knownKeys`)
-  — you can't accidentally write unrelated env vars into the keychain.
+- The Secrets screen lists every catalog source plus a pinned Paramify
+  entry. Editable keys come from the table in
+  [`internal/secrets/requirements.go`](../internal/secrets/requirements.go);
+  `ValidateKey` and `RuntimeKeys` derive their allowlists from the
+  same table so you can't accidentally write unrelated env vars into
+  the keychain.
 - Secrets are injected into the subprocess via `cmd.Env`, never written
   into temp files or arguments. Values never appear in the session log.
 - AWS preflight is run once per `(profile, region)` per `Start()` call
   and cached. If it fails, AWS-flavored fetchers fail-fast with a clear
   message before exec.
-- KnowBe4-flavored fetchers are similarly gated on a non-empty
-  `KNOWBE4_API_KEY` in the resolved env.
+- KnowBe4-flavored fetchers are similarly fail-fasted on a non-empty
+  `KNOWBE4_API_KEY` in the resolved env (runner-side, not a TUI gate).
+- All other "missing X token" failures surface as ordinary non-zero
+  exits from the fetcher script itself; the operator opens Secrets,
+  sets the key, and retries.

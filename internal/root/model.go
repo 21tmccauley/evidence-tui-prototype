@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
-	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
 	"github.com/paramify/evidence-tui-prototype/internal/screens"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
@@ -38,7 +37,6 @@ type Model struct {
 	evidenceDir     string
 	paramifyFactory screens.ParamifyFactory
 	secrets         secrets.Store
-	pendingRun      []mock.FetcherID
 	pendingReview   bool
 	secretBack      Screen
 
@@ -127,7 +125,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.secrets == nil {
 			return m, nil
 		}
-		m.pendingRun = nil
 		m.secretBack = m.screen
 		m.sec = screens.NewSecrets(m.keys, m.secrets).Resize(m.width, m.height)
 		m.screen = ScreenSecrets
@@ -139,30 +136,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if configurable, ok := m.runner.(runner.ProfileConfigurer); ok {
 			configurable.ConfigureProfile(msg.Profile.Name, msg.Profile.Region)
 		}
-		m.sel = screens.NewSelect(m.keys, m.profile, m.secrets).Resize(m.width, m.height)
+		m.sel = screens.NewSelect(m.keys, m.profile).Resize(m.width, m.height)
 		m.screen = ScreenSelect
 		return m, m.sel.Init()
 
 	case screens.SelectionConfirmedMsg:
-		missing, err := m.sel.MissingSecretsForSelection(msg.IDs)
-		if err != nil {
-			m.sel = m.sel.WithStatus("could not check secrets store: "+err.Error(), true)
-			return m, nil
-		}
-		if len(missing) > 0 {
-			m.pendingRun = append([]mock.FetcherID(nil), msg.IDs...)
-			m.secretBack = ScreenSelect
-			focusKeys := make([]string, len(missing))
-			for i, ms := range missing {
-				focusKeys[i] = ms.Key
-			}
-			m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
-				FocusKeys: focusKeys,
-				Prompt:    formatMissingPrompt(missing),
-			}).Resize(m.width, m.height)
-			m.screen = ScreenSecrets
-			return m, m.sec.Init()
-		}
+		// No pre-Run secret gate: the TUI provides a Secrets editor but
+		// does not decide what each fetcher needs. Missing keys surface
+		// as fetcher failures (see runner.Real for KnowBe4 fail-fast and
+		// the AWS preflight; everything else fails inside the script).
 		m.run = screens.NewRun(m.keys, m.profile, msg.IDs, m.runner).Resize(m.width, m.height)
 		m.screen = ScreenRun
 		return m, m.run.Init()
@@ -192,7 +174,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case screens.RestartMsg:
 		m.welcome = screens.NewWelcomeWithOptions(m.keys, m.welcomeOpts).Resize(m.width, m.height)
-		m.pendingRun = nil
 		m.screen = ScreenWelcome
 		return m, m.welcome.Init()
 
@@ -202,30 +183,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = ScreenReview
 			return m, nil
 		}
-		if len(m.pendingRun) > 0 {
-			missing, err := m.sel.MissingRequiredKeysForSelection(m.pendingRun)
-			if err != nil {
-				m.sel = m.sel.WithStatus("could not check secrets store: "+err.Error(), true)
-				m.screen = ScreenSelect
-				return m, nil
-			}
-			if len(missing) == 0 {
-				ids := append([]mock.FetcherID(nil), m.pendingRun...)
-				m.pendingRun = nil
-				m.run = screens.NewRun(m.keys, m.profile, ids, m.runner).Resize(m.width, m.height)
-				m.screen = ScreenRun
-				return m, m.run.Init()
-			}
-			m.sel = m.sel.WithStatus("still missing required secrets — "+strings.Join(missing, ", "), true)
-			m.screen = ScreenSelect
-			return m, nil
-		}
-		m.welcome = screens.NewWelcomeWithOptions(m.keys, m.welcomeOpts).Resize(m.width, m.height)
 		switch m.secretBack {
 		case ScreenSelect:
 			m.screen = ScreenSelect
 			return m, nil
+		case ScreenRun:
+			m.screen = ScreenRun
+			return m, nil
 		default:
+			m.welcome = screens.NewWelcomeWithOptions(m.keys, m.welcomeOpts).Resize(m.width, m.height)
 			m.screen = ScreenWelcome
 			return m, m.welcome.Init()
 		}
@@ -379,24 +345,6 @@ func (m Model) helpSections() []helpSection {
 		},
 	}
 	return []helpSection{current, global}
-}
-
-// formatMissingPrompt builds the multi-line warning shown atop the Secrets
-// screen when the user tries to run fetchers that need unset secrets.
-func formatMissingPrompt(missing []screens.MissingSecret) string {
-	if len(missing) == 0 {
-		return ""
-	}
-	lines := []string{"missing required secrets:"}
-	for _, ms := range missing {
-		names := strings.Join(ms.Fetchers, ", ")
-		if names == "" {
-			lines = append(lines, fmt.Sprintf("  · %s", ms.Key))
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("  · %s — %s", ms.Key, names))
-	}
-	return strings.Join(lines, "\n")
 }
 
 func clampInt(v, min, max int) int {

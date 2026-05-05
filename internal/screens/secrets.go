@@ -12,11 +12,17 @@ import (
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
 	"github.com/paramify/evidence-tui-prototype/internal/components"
+	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
 type SecretsDoneMsg struct{}
 
+// SecretsOptions tweaks the Secrets screen at construction time.
+//
+// FocusKeys collapses the screen into a single-section view of just those
+// keys (used by Review when the upload token is missing). When empty, the
+// screen renders the catalog-source two-pane layout.
 type SecretsOptions struct {
 	FocusKeys []string
 	Prompt    string
@@ -34,12 +40,27 @@ type secretSavedMsg struct {
 	err     error
 }
 
+type secretsPane int
+
+const (
+	secretsPaneSources secretsPane = iota
+	secretsPaneKeys
+)
+
 type SecretsModel struct {
 	keys   app.KeyMap
 	store  secrets.Store
-	specs  []secrets.ServiceSecret
-	cursor int
 	prompt string
+
+	// sources is the left-pane list. In default mode it's the paramify
+	// pseudo-source plus every catalog source from mock.Sources(); in
+	// focused mode it's a single synthesized "focused" entry.
+	sources []secrets.SourceSecrets
+	focused bool // true iff constructed with FocusKeys
+
+	srcIdx int
+	keyIdx int
+	pane   secretsPane
 
 	present map[string]bool
 	source  map[string]string
@@ -64,15 +85,19 @@ func NewSecretsWithOptions(keys app.KeyMap, store secrets.Store, opts SecretsOpt
 	ti.EchoMode = textinput.EchoPassword
 	ti.EchoCharacter = '•'
 	ti.Placeholder = "paste secret value"
-	specs := secrets.KnownServiceSecrets()
-	if len(opts.FocusKeys) > 0 {
-		specs = filterSecretsByKeys(specs, opts.FocusKeys)
+
+	sources, focused := buildSecretsSources(opts.FocusKeys)
+	pane := secretsPaneSources
+	if focused {
+		pane = secretsPaneKeys
 	}
 
 	return SecretsModel{
 		keys:    keys,
 		store:   store,
-		specs:   specs,
+		sources: sources,
+		focused: focused,
+		pane:    pane,
 		present: map[string]bool{},
 		source:  map[string]string{},
 		input:   ti,
@@ -131,7 +156,13 @@ func (m SecretsModel) Update(msg tea.Msg) (SecretsModel, tea.Cmd) {
 				m.input.SetValue("")
 				return m, nil
 			case key.Matches(msg, m.keys.Enter):
-				spec := m.currentSpec()
+				spec, ok := m.currentSpec()
+				if !ok {
+					m.editing = false
+					m.input.Blur()
+					m.input.SetValue("")
+					return m, nil
+				}
 				value := strings.TrimSpace(m.input.Value())
 				m.editing = false
 				m.input.Blur()
@@ -144,43 +175,93 @@ func (m SecretsModel) Update(msg tea.Msg) (SecretsModel, tea.Cmd) {
 		}
 
 		switch {
+		case key.Matches(msg, m.keys.Tab), key.Matches(msg, m.keys.Right):
+			if !m.focused && m.currentSourceHasKeys() {
+				m.pane = secretsPaneKeys
+				m.keyIdx = 0
+			}
+		case key.Matches(msg, m.keys.Left):
+			if !m.focused {
+				m.pane = secretsPaneSources
+			}
 		case key.Matches(msg, m.keys.Up):
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.moveCursor(-1)
 		case key.Matches(msg, m.keys.Down):
-			if m.cursor < len(m.specs)-1 {
-				m.cursor++
-			}
+			m.moveCursor(1)
 		case key.Matches(msg, m.keys.Enter):
-			if len(m.specs) == 0 {
-				return m, nil
-			}
-			if m.store == nil || !m.store.Writable() {
-				m.status = "backend is read-only — set values via your shell or rerun with a writable backend"
-				m.isError = true
-				return m, nil
-			}
-			m.editing = true
-			m.input.SetValue("")
-			m.input.Focus()
-			return m, textinput.Blink
+			return m.handleEnter()
 		case msg.String() == "x":
-			if len(m.specs) == 0 {
-				return m, nil
-			}
-			if m.store == nil || !m.store.Writable() {
-				m.status = "backend is read-only — cannot clear from TUI"
-				m.isError = true
-				return m, nil
-			}
-			spec := m.currentSpec()
-			return m, m.saveCmd(spec.Key, "")
+			return m.handleClear()
 		case key.Matches(msg, m.keys.Back):
 			return m, func() tea.Msg { return SecretsDoneMsg{} }
 		}
 	}
 	return m, nil
+}
+
+func (m *SecretsModel) moveCursor(delta int) {
+	if m.focused || m.pane == secretsPaneKeys {
+		spec := m.currentSource()
+		if !spec.HasKeys() {
+			return
+		}
+		next := m.keyIdx + delta
+		if next < 0 {
+			next = 0
+		}
+		if next >= len(spec.Keys) {
+			next = len(spec.Keys) - 1
+		}
+		m.keyIdx = next
+		return
+	}
+	next := m.srcIdx + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(m.sources) {
+		next = len(m.sources) - 1
+	}
+	m.srcIdx = next
+	m.keyIdx = 0
+}
+
+func (m SecretsModel) handleEnter() (SecretsModel, tea.Cmd) {
+	if !m.focused && m.pane == secretsPaneSources {
+		if m.currentSourceHasKeys() {
+			m.pane = secretsPaneKeys
+			m.keyIdx = 0
+		}
+		return m, nil
+	}
+	if _, ok := m.currentSpec(); !ok {
+		return m, nil
+	}
+	if m.store == nil || !m.store.Writable() {
+		m.status = "backend is read-only — set values via your shell or rerun with a writable backend"
+		m.isError = true
+		return m, nil
+	}
+	m.editing = true
+	m.input.SetValue("")
+	m.input.Focus()
+	return m, textinput.Blink
+}
+
+func (m SecretsModel) handleClear() (SecretsModel, tea.Cmd) {
+	if !m.focused && m.pane == secretsPaneSources {
+		return m, nil
+	}
+	spec, ok := m.currentSpec()
+	if !ok {
+		return m, nil
+	}
+	if m.store == nil || !m.store.Writable() {
+		m.status = "backend is read-only — cannot clear from TUI"
+		m.isError = true
+		return m, nil
+	}
+	return m, m.saveCmd(spec.Key, "")
 }
 
 func (m SecretsModel) View() string {
@@ -199,48 +280,22 @@ func (m SecretsModel) View() string {
 		Now:   time.Now(),
 	})
 
-	rows := make([]string, 0, len(m.specs))
-	for i, spec := range m.specs {
-		prefix := "  "
-		style := app.StyleBorder.Width(width - 6)
-		if i == m.cursor {
-			prefix = app.StyleAccent.Render("▸ ")
-			style = app.StyleBorderActive.Width(width - 6)
-		}
-		status := app.StyleWarning.Render("missing")
-		if m.present[spec.Key] {
-			label := "set"
-			if src := m.source[spec.Key]; src != "" {
-				label = "set (" + src + ")"
-			}
-			status = app.StyleSuccess.Render(label)
-		}
-		opt := ""
-		if spec.Optional {
-			opt = app.StyleSubtle.Render("optional")
-		} else {
-			opt = app.StyleAccent.Render("required")
-		}
-		row := fmt.Sprintf("%s  %s  %s  %s", padRight(spec.ServiceName, 10), padRight(spec.Key, 28), status, opt)
-		if spec.Description != "" {
-			row += "\n" + app.StyleSubtle.Render("    "+spec.Description)
-		}
-		rows = append(rows, prefix+style.Render(row))
-	}
-
-	readOnly := m.store == nil || !m.store.Writable()
 	subtitle := "values are masked and stored via the configured backend"
+	readOnly := m.store == nil || !m.store.Writable()
 	if readOnly && m.store != nil {
 		subtitle = "read-only backend (" + m.store.Source() + ") — values must be set in the shell environment"
 	}
+
+	body := m.renderBody(width)
+
 	bodyRows := []string{
 		"",
 		lipgloss.PlaceHorizontal(width, lipgloss.Center, app.StyleTitle.Render("secrets")),
 		lipgloss.PlaceHorizontal(width, lipgloss.Center, app.StyleSubtle.Render(subtitle)),
 		"",
+		body,
+		"",
 	}
-	bodyRows = append(bodyRows, rows...)
-	bodyRows = append(bodyRows, "")
 	if m.prompt != "" {
 		for _, line := range strings.Split(m.prompt, "\n") {
 			bodyRows = append(bodyRows, "  "+app.StyleWarning.Render(line))
@@ -248,13 +303,14 @@ func (m SecretsModel) View() string {
 	}
 	switch {
 	case m.editing:
-		bodyRows = append(bodyRows, "  "+app.StyleAccent.Render("enter value for "+m.currentSpec().Key))
+		spec, _ := m.currentSpec()
+		bodyRows = append(bodyRows, "  "+app.StyleAccent.Render("enter value for "+spec.Key))
 		bodyRows = append(bodyRows, "  "+m.input.View())
 		bodyRows = append(bodyRows, "  "+app.StyleSubtle.Render("press enter to save; esc to cancel"))
 	case readOnly:
 		bodyRows = append(bodyRows, "  "+app.StyleSubtle.Render("read-only — editing disabled"))
 	default:
-		bodyRows = append(bodyRows, "  "+app.StyleSubtle.Render("press enter to edit selected key; x clears selected key"))
+		bodyRows = append(bodyRows, "  "+app.StyleSubtle.Render("enter to edit; x clears; tab switches pane"))
 	}
 	if m.status != "" {
 		statusStyle := app.StyleInfo
@@ -263,10 +319,10 @@ func (m SecretsModel) View() string {
 		}
 		bodyRows = append(bodyRows, "  "+statusStyle.Render(m.status))
 	}
-	body := lipgloss.JoinVertical(lipgloss.Left, bodyRows...)
 
 	hints := []components.Hint{
 		{Key: "↑/↓", Desc: "move"},
+		{Key: "tab", Desc: "switch pane"},
 		{Key: "enter", Desc: "edit/save"},
 		{Key: "x", Desc: "clear"},
 		{Key: "esc/b", Desc: "back"},
@@ -280,12 +336,13 @@ func (m SecretsModel) View() string {
 	case readOnly:
 		hints = []components.Hint{
 			{Key: "↑/↓", Desc: "move"},
+			{Key: "tab", Desc: "switch pane"},
 			{Key: "esc/b", Desc: "back"},
 		}
 	}
 	footer := components.RenderFooter(width, hints)
 
-	page := lipgloss.JoinVertical(lipgloss.Left, header, body, footer)
+	page := lipgloss.JoinVertical(lipgloss.Left, append([]string{header}, append(bodyRows, footer)...)...)
 	used := lipgloss.Height(page)
 	if pad := height - used; pad > 0 {
 		page += strings.Repeat("\n", pad)
@@ -293,17 +350,153 @@ func (m SecretsModel) View() string {
 	return page
 }
 
-func (m SecretsModel) currentSpec() secrets.ServiceSecret {
-	if len(m.specs) == 0 {
-		return secrets.ServiceSecret{}
+func (m SecretsModel) renderBody(width int) string {
+	if m.focused {
+		return m.renderFocusedKeys(width)
 	}
-	if m.cursor < 0 {
-		return m.specs[0]
+	leftW := 24
+	rightW := width - leftW - 4
+	if rightW < 30 {
+		rightW = 30
 	}
-	if m.cursor >= len(m.specs) {
-		return m.specs[len(m.specs)-1]
+
+	leftLines := []string{app.StyleTitle.Render("sources"), ""}
+	for i, src := range m.sources {
+		marker := "  "
+		label := src.Label
+		if !src.HasKeys() {
+			label = label + app.StyleSubtle.Render("  (info)")
+		}
+		if i == m.srcIdx {
+			marker = app.StyleAccent.Render("▸ ")
+			label = app.StyleAccent.Bold(true).Render(src.Label)
+			if !src.HasKeys() {
+				label = label + " " + app.StyleSubtle.Render("(info)")
+			}
+		}
+		leftLines = append(leftLines, marker+label)
 	}
-	return m.specs[m.cursor]
+	leftStyle := app.StyleBorder.Width(leftW)
+	if m.pane == secretsPaneSources {
+		leftStyle = app.StyleBorderActive.Width(leftW)
+	}
+	leftPane := leftStyle.Render(strings.Join(leftLines, "\n"))
+
+	rightStyle := app.StyleBorder.Width(rightW)
+	if m.pane == secretsPaneKeys {
+		rightStyle = app.StyleBorderActive.Width(rightW)
+	}
+	rightPane := rightStyle.Render(m.renderRightPane(rightW))
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, " ", rightPane)
+}
+
+func (m SecretsModel) renderRightPane(_ int) string {
+	src := m.currentSource()
+	title := app.StyleTitle.Render(src.Label)
+	if !src.HasKeys() {
+		note := src.Note
+		if note == "" {
+			note = "no secrets configured for this source"
+		}
+		return strings.Join([]string{
+			title, "",
+			app.StyleSubtle.Render(note),
+		}, "\n")
+	}
+
+	rows := []string{title, ""}
+	for i, spec := range src.Keys {
+		marker := "  "
+		if m.pane == secretsPaneKeys && i == m.keyIdx {
+			marker = app.StyleAccent.Render("▸ ")
+		}
+		status := app.StyleWarning.Render("missing")
+		if m.present[spec.Key] {
+			label := "set"
+			if s := m.source[spec.Key]; s != "" {
+				label = "set (" + s + ")"
+			}
+			status = app.StyleSuccess.Render(label)
+		}
+		opt := app.StyleAccent.Render("required")
+		if spec.Optional {
+			opt = app.StyleSubtle.Render("optional")
+		}
+		row := fmt.Sprintf("%s  %s  %s", padRight(spec.Key, 28), status, opt)
+		rows = append(rows, marker+row)
+		if spec.Description != "" {
+			rows = append(rows, "    "+app.StyleSubtle.Render(spec.Description))
+		}
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m SecretsModel) renderFocusedKeys(width int) string {
+	src := m.currentSource()
+	rows := []string{}
+	for i, spec := range src.Keys {
+		prefix := "  "
+		style := app.StyleBorder.Width(width - 6)
+		if i == m.keyIdx {
+			prefix = app.StyleAccent.Render("▸ ")
+			style = app.StyleBorderActive.Width(width - 6)
+		}
+		status := app.StyleWarning.Render("missing")
+		if m.present[spec.Key] {
+			label := "set"
+			if s := m.source[spec.Key]; s != "" {
+				label = "set (" + s + ")"
+			}
+			status = app.StyleSuccess.Render(label)
+		}
+		opt := app.StyleAccent.Render("required")
+		if spec.Optional {
+			opt = app.StyleSubtle.Render("optional")
+		}
+		row := fmt.Sprintf("%s  %s  %s  %s", padRight(spec.ServiceName, 10), padRight(spec.Key, 28), status, opt)
+		if spec.Description != "" {
+			row += "\n" + app.StyleSubtle.Render("    "+spec.Description)
+		}
+		rows = append(rows, prefix+style.Render(row))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, app.StyleSubtle.Render("  (no keys to display)"))
+	}
+	return strings.Join(rows, "\n")
+}
+
+func (m SecretsModel) currentSource() secrets.SourceSecrets {
+	if len(m.sources) == 0 {
+		return secrets.SourceSecrets{}
+	}
+	idx := m.srcIdx
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(m.sources) {
+		idx = len(m.sources) - 1
+	}
+	return m.sources[idx]
+}
+
+func (m SecretsModel) currentSourceHasKeys() bool {
+	return m.currentSource().HasKeys()
+}
+
+func (m SecretsModel) currentSpec() (secrets.ServiceSecret, bool) {
+	src := m.currentSource()
+	if !src.HasKeys() {
+		return secrets.ServiceSecret{}, false
+	}
+	idx := m.keyIdx
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(src.Keys) {
+		idx = len(src.Keys) - 1
+	}
+	return src.Keys[idx], true
 }
 
 func (m SecretsModel) loadCmd() tea.Cmd {
@@ -313,14 +506,19 @@ func (m SecretsModel) loadCmd() tea.Cmd {
 		}
 		present := map[string]bool{}
 		source := map[string]string{}
-		for _, spec := range m.specs {
-			src, found, err := m.store.Locate(spec.Key)
-			if err != nil {
-				return secretsLoadedMsg{err: err}
-			}
-			present[spec.Key] = found
-			if found {
-				source[spec.Key] = src
+		for _, src := range m.sources {
+			for _, spec := range src.Keys {
+				if _, seen := present[spec.Key]; seen {
+					continue
+				}
+				s, found, err := m.store.Locate(spec.Key)
+				if err != nil {
+					return secretsLoadedMsg{err: err}
+				}
+				present[spec.Key] = found
+				if found {
+					source[spec.Key] = s
+				}
 			}
 		}
 		return secretsLoadedMsg{present: present, source: source}
@@ -339,24 +537,63 @@ func (m SecretsModel) saveCmd(key, value string) tea.Cmd {
 	}
 }
 
-func filterSecretsByKeys(specs []secrets.ServiceSecret, focusKeys []string) []secrets.ServiceSecret {
-	index := map[string]secrets.ServiceSecret{}
-	for _, spec := range specs {
-		index[spec.Key] = spec
+// buildSecretsSources returns the left-pane sources to display and a flag
+// indicating whether the screen is in single-section "focused" mode (i.e.
+// constructed via SecretsOptions.FocusKeys, used by Review's upload detour).
+//
+// Default mode: paramify pseudo-source pinned first, then every catalog
+// source from mock.Sources() in catalog order. Sources without a table
+// entry get a synthesized info row so the screen never lies about coverage.
+//
+// Focused mode: a single synthesized SourceSecrets entry containing only
+// the requested keys, in the order given.
+func buildSecretsSources(focusKeys []string) ([]secrets.SourceSecrets, bool) {
+	if len(focusKeys) > 0 {
+		keys := []secrets.ServiceSecret{}
+		seen := map[string]bool{}
+		all := secrets.AllSourceSecrets()
+		index := map[string]secrets.ServiceSecret{}
+		for _, src := range all {
+			for _, k := range src.Keys {
+				if _, ok := index[k.Key]; !ok {
+					index[k.Key] = k
+				}
+			}
+		}
+		for _, k := range focusKeys {
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			if spec, ok := index[k]; ok {
+				keys = append(keys, spec)
+			}
+		}
+		return []secrets.SourceSecrets{{
+			Source: "focused",
+			Label:  "Required Secrets",
+			Keys:   keys,
+		}}, true
 	}
-	out := make([]secrets.ServiceSecret, 0, len(focusKeys))
-	seen := map[string]bool{}
-	for _, key := range focusKeys {
-		if seen[key] {
+
+	out := []secrets.SourceSecrets{secrets.SecretsForSource(secrets.SourceParamify)}
+	added := map[string]bool{secrets.SourceParamify: true}
+
+	for _, src := range mock.Sources(mock.Catalog()) {
+		if added[src] {
 			continue
 		}
-		seen[key] = true
-		if spec, ok := index[key]; ok {
-			out = append(out, spec)
+		added[src] = true
+		out = append(out, secrets.SecretsForSource(src))
+	}
+
+	// Append any table-only sources that aren't in the catalog (defensive;
+	// keeps us honest if the catalog and table diverge during refactors).
+	for _, ss := range secrets.AllSourceSecrets() {
+		if !added[ss.Source] {
+			added[ss.Source] = true
+			out = append(out, ss)
 		}
 	}
-	if len(out) > 0 {
-		return out
-	}
-	return specs
+	return out, false
 }
