@@ -767,6 +767,7 @@ func TestReal_ConcurrencyCapIsRespected(t *testing.T) {
 		OutputRoot:      outRoot,
 		Scripts:         scripts,
 		AuthChecker:     &stubAuthChecker{},
+		MaxParallel:     4,
 	}
 	r := NewReal(cfg)
 
@@ -780,6 +781,46 @@ func TestReal_ConcurrencyCapIsRespected(t *testing.T) {
 		t.Fatalf("expected at most 4 started within concurrency cap, got %d", got)
 	}
 	// Cancel anything running/queued so the goroutines drain quickly.
+	for _, id := range ids {
+		_ = r.Cancel(id)()
+	}
+}
+
+func TestReal_DefaultMaxParallelIsOne(t *testing.T) {
+	requireBash(t)
+
+	repoRoot := testdataRepoRoot(t)
+	outRoot := t.TempDir()
+
+	scripts := map[FetcherID]catalog.Script{}
+	ids := make([]FetcherID, 0, 3)
+	for i := 0; i < 3; i++ {
+		id := FetcherID(fmt.Sprintf("EVD-TEST-DEFPAR-%d", i))
+		ids = append(ids, id)
+		scripts[id] = catalog.Script{
+			ID:         string(id),
+			ScriptFile: "fetchers/aws/loop_term_exits.sh",
+			Source:     "test",
+			Key:        fmt.Sprintf("defpar_%d", i),
+		}
+	}
+	cfg := Config{
+		FetcherRepoRoot: repoRoot,
+		OutputRoot:      outRoot,
+		Scripts:         scripts,
+		AuthChecker:     &stubAuthChecker{},
+		// MaxParallel omitted: zero should normalize to 1 in NewReal.
+	}
+	r := NewReal(cfg)
+
+	started := &startedCounter{}
+	r.Bind(started)
+	startReal(t, r, ids)
+
+	time.Sleep(250 * time.Millisecond)
+	if got := started.count(); got != 1 {
+		t.Fatalf("with default parallelism want exactly 1 started quickly, got %d", got)
+	}
 	for _, id := range ids {
 		_ = r.Cancel(id)()
 	}

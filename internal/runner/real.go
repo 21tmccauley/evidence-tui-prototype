@@ -20,8 +20,6 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/evidence"
 )
 
-const realConcurrency = 4
-
 const cancelGrace = 5 * time.Second
 
 // RealRunner invokes evidence-fetchers scripts via exec.CommandContext,
@@ -56,6 +54,9 @@ type realState struct {
 func NewReal(cfg Config) *RealRunner {
 	if cfg.AuthChecker == nil {
 		cfg.AuthChecker = CLIAuthChecker{}
+	}
+	if cfg.MaxParallel < 1 {
+		cfg.MaxParallel = 1
 	}
 	return &RealRunner{
 		cfg:       cfg,
@@ -229,7 +230,7 @@ func (r *RealRunner) fillRunning() {
 		runIdx int
 	}
 	var launches []launch
-	for r.running < realConcurrency && len(r.queue) > 0 {
+	for r.running < r.cfg.MaxParallel && len(r.queue) > 0 {
 		id := r.queue[0]
 		r.queue = r.queue[1:]
 		st, ok := r.states[id]

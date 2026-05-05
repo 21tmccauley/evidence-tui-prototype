@@ -29,6 +29,7 @@ func main() {
 	region := flag.String("region", "", "AWS region (real runner)")
 	repoRoot := flag.String("fetcher-repo-root", "", "path to the evidence-fetchers checkout (real runner)")
 	outputRoot := flag.String("output-root", "", "explicit per-run evidence directory (overrides XDG default)")
+	fetcherParallel := flag.Int("fetcher-parallel", 1, "max fetcher subprocesses at once (default 1 avoids tmp-path races until scripts are isolated)")
 	secretsBackend := flag.String("secrets-backend", "merged", "secrets backend: merged|keychain|env")
 	flag.Parse()
 
@@ -48,8 +49,8 @@ func main() {
 	}
 	defer sessionLog.Close()
 
-	sessionLog.Logf("paramify-fetcher start demo=%t catalog=%q profile=%q region=%q output-root=%q",
-		*demo, *catalogPath, *profile, *region, *outputRoot)
+	sessionLog.Logf("paramify-fetcher start demo=%t catalog=%q profile=%q region=%q output-root=%q fetcher-parallel=%d",
+		*demo, *catalogPath, *profile, *region, *outputRoot, *fetcherParallel)
 
 	secretStore, err := buildSecretsStore(*secretsBackend)
 	if err != nil {
@@ -70,7 +71,7 @@ func main() {
 		r = mock.NewMockRunner(mock.Catalog())
 	} else {
 		var repoAbs string
-		r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, runTS, runtimeEnv)
+		r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv)
 		welcomeOpts = realWelcomeOptions(*profile, *region)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
 		paramifyFactory = func() (uploader.Uploader, error) {
@@ -162,7 +163,7 @@ func firstNonEmpty(values ...string) string {
 
 // buildRealRunner validates flags, builds the real runner, and returns
 // runner, evidence directory, and absolute fetcher repo root.
-func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag, runTS string, env []string) (runner.Runner, string, string) {
+func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag string, fetcherParallel int, runTS string, env []string) (runner.Runner, string, string) {
 	if repoRoot == "" {
 		die(2, "--fetcher-repo-root is required when --demo=false")
 	}
@@ -197,7 +198,8 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag, run
 			Cache:   preflightCachePath,
 			Checker: runner.CLIAuthChecker{},
 		}},
-		Environ: env,
+		Environ:     env,
+		MaxParallel: fetcherParallel,
 	}), evidenceDir, repoAbs
 }
 

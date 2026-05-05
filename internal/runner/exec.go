@@ -19,6 +19,9 @@ type Config struct {
 	Scripts                map[FetcherID]catalog.Script
 	AuthChecker            AuthChecker
 	Environ                []string
+	// MaxParallel is how many fetcher subprocesses may run at once. Values below 1
+	// are treated as 1 in NewReal. Default 1 avoids fetcher scripts clashing on shared tmp paths.
+	MaxParallel int
 }
 
 // BuildCmd assembles the *exec.Cmd per the runner contract in
