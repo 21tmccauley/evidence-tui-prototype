@@ -44,6 +44,9 @@ type WelcomeModel struct {
 	status       string
 	statusError  bool
 	ssoReady     bool
+
+	logoSheenCol  int
+	logoSheenIdle bool
 }
 
 func NewWelcome(keys app.KeyMap) WelcomeModel {
@@ -72,11 +75,12 @@ func NewWelcomeWithOptions(keys app.KeyMap, opts WelcomeOptions) WelcomeModel {
 		}
 	}
 	return WelcomeModel{
-		profiles:   profiles,
-		tools:      opts.Tools,
-		credential: opts.Credential,
-		cursor:     cursor,
-		keys:       keys,
+		profiles:     profiles,
+		tools:        opts.Tools,
+		credential:   opts.Credential,
+		cursor:       cursor,
+		keys:         keys,
+		logoSheenCol: -app.LogoSheenRadius,
 	}
 }
 
@@ -93,10 +97,42 @@ type ssoLoginDoneMsg struct {
 	err     error
 }
 
-func (m WelcomeModel) Init() tea.Cmd { return nil }
+type welcomeLogoSheenTickMsg struct{}
+
+type welcomeLogoSheenResumeMsg struct{}
+
+func welcomeLogoSheenSweepCmd() tea.Cmd {
+	return tea.Tick(app.LogoSheenSweepStep, func(time.Time) tea.Msg {
+		return welcomeLogoSheenTickMsg{}
+	})
+}
+
+func welcomeLogoSheenIdleCmd() tea.Cmd {
+	return tea.Tick(app.LogoSheenIdleBetween, func(time.Time) tea.Msg {
+		return welcomeLogoSheenResumeMsg{}
+	})
+}
+
+func (m WelcomeModel) Init() tea.Cmd {
+	return welcomeLogoSheenSweepCmd()
+}
 
 func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 	switch msg := msg.(type) {
+	case welcomeLogoSheenTickMsg:
+		if m.logoSheenIdle {
+			return m, nil
+		}
+		m.logoSheenCol++
+		if m.logoSheenCol > app.LogoSheenMaxColumn()+app.LogoSheenRadius {
+			m.logoSheenIdle = true
+			return m, welcomeLogoSheenIdleCmd()
+		}
+		return m, welcomeLogoSheenSweepCmd()
+	case welcomeLogoSheenResumeMsg:
+		m.logoSheenIdle = false
+		m.logoSheenCol = -app.LogoSheenRadius
+		return m, welcomeLogoSheenSweepCmd()
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case profileCheckDoneMsg:
@@ -224,8 +260,7 @@ func (m WelcomeModel) View() string {
 		Now:   time.Now(),
 	})
 
-	logo := strings.Join(app.LogoLines(), "\n")
-	logo = lipgloss.NewStyle().Foreground(app.ColorPrimary).Render(logo)
+	logo := app.RenderLogoSheen(m.logoSheenCol)
 
 	tagline := app.StyleAccent.Render("fetcher")
 	subtitle := app.StyleSubtle.Render(
