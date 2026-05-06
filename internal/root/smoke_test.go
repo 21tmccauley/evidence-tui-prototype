@@ -126,8 +126,8 @@ func TestRoot_OmitsEvidenceDirWhenEmpty(t *testing.T) {
 
 // The TUI no longer gates Run on per-source secret presence: the operator
 // confirms a selection and Run starts immediately. Missing keys surface as
-// fetcher failures (runner.Real fail-fasts AWS preflight and KnowBe4;
-// everything else fails inside the script). The operator opens Secrets
+// fetcher failures (runner.Real fail-fasts AWS preflight; everything else
+// fails inside the script). The operator opens Secrets
 // from Run / Select to fix the key and retries.
 func TestRoot_SelectionWithoutSecretsGoesStraightToRun(t *testing.T) {
 	r := mock.NewMockRunner(mock.Catalog())

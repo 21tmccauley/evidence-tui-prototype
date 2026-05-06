@@ -437,7 +437,8 @@ func TestReal_AWSPreflightFails(t *testing.T) {
 	}
 }
 
-func TestReal_KnowBe4PreflightFailsWhenAPIKeyMissing(t *testing.T) {
+// Non-AWS catalog sources do not run AWS auth preflight.
+func TestReal_NonAWSSourceSkipsAWSAuthChecker(t *testing.T) {
 	requireBash(t)
 	repoRoot := testdataRepoRoot(t)
 	outRoot := t.TempDir()
@@ -447,49 +448,7 @@ func TestReal_KnowBe4PreflightFailsWhenAPIKeyMissing(t *testing.T) {
 	cfg := Config{
 		FetcherRepoRoot: repoRoot,
 		OutputRoot:      outRoot,
-		Environ:         []string{},
-		Scripts: map[FetcherID]catalog.Script{
-			id: {
-				ID:         string(id),
-				ScriptFile: "fetchers/aws/echo_ok.sh", // would succeed; we never run it
-				Source:     "knowbe4",
-				Key:        "echo_ok",
-			},
-		},
-		AuthChecker: checker,
-	}
-	r := NewReal(cfg)
-	sender := newCaptureSender(id)
-	r.Bind(sender)
-	startReal(t, r, []FetcherID{id})
-
-	fm := sender.waitFinished(t, 5*time.Second)
-	if fm.Status != StatusFailed {
-		t.Errorf("status: got %s, want failed", fm.Status)
-	}
-	if !strings.Contains(fm.ErrorReason, "KNOWBE4_API_KEY") {
-		t.Errorf("ErrorReason should mention KNOWBE4_API_KEY, got: %q", fm.ErrorReason)
-	}
-	if checker.calls != 0 {
-		t.Errorf("KnowBe4 fetcher should not run AWS auth check, got %d calls", checker.calls)
-	}
-	stdoutPath := filepath.Join(outRoot, "echo_ok", "stdout.log")
-	if _, err := os.Stat(stdoutPath); err == nil {
-		t.Errorf("script must not run when KnowBe4 API key is missing, but stdout.log exists at %s", stdoutPath)
-	}
-}
-
-func TestReal_KnowBe4PreflightPassesWithAPIKey(t *testing.T) {
-	requireBash(t)
-	repoRoot := testdataRepoRoot(t)
-	outRoot := t.TempDir()
-
-	const id FetcherID = "EVD-TEST-KNOWBE4"
-	checker := &stubAuthChecker{}
-	cfg := Config{
-		FetcherRepoRoot: repoRoot,
-		OutputRoot:      outRoot,
-		Environ:         []string{"KNOWBE4_API_KEY=test-key"},
+		Environ:         nil,
 		Scripts: map[FetcherID]catalog.Script{
 			id: {
 				ID:         string(id),
@@ -510,7 +469,7 @@ func TestReal_KnowBe4PreflightPassesWithAPIKey(t *testing.T) {
 		t.Errorf("status: got %s, want ok; reason=%q", fm.Status, fm.ErrorReason)
 	}
 	if checker.calls != 0 {
-		t.Errorf("KnowBe4 fetcher should not run AWS auth check, got %d calls", checker.calls)
+		t.Errorf("non-AWS fetcher should not run AWS auth check, got %d calls", checker.calls)
 	}
 }
 

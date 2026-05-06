@@ -143,8 +143,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.SelectionConfirmedMsg:
 		// No pre-Run secret gate: the TUI provides a Secrets editor but
 		// does not decide what each fetcher needs. Missing keys surface
-		// as fetcher failures (see runner.Real for KnowBe4 fail-fast and
-		// the AWS preflight; everything else fails inside the script).
+		// as fetcher failures (see runner.Real AWS preflight; everything
+		// else fails inside the script).
 		m.run = screens.NewRun(m.keys, m.profile, msg.IDs, m.runner).Resize(m.width, m.height)
 		m.screen = ScreenRun
 		return m, m.run.Init()
