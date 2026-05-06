@@ -47,8 +47,8 @@ Today they share one workflow; if they ever diverge, that's an ADR.
    current implementation status.)*
 4. **Run starts immediately on confirmed selection.** Missing keys
    surface as fetcher failures (`runner.Real` fail-fasts AWS preflight
-   and KnowBe4; everything else fails inside the script with its own
-   error). The operator opens Secrets, fixes the key, retries the
+   only; everything else fails inside the script with its own error).
+   The operator opens Secrets, fixes the key, retries the
    failed card.
 5. **Scans run** in parallel under the runner.
 6. **Review** — the operator inspects results and chooses one of:

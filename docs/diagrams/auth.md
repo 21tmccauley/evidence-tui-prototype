@@ -51,8 +51,6 @@ Key facts:
 - AWS preflight is run once per `(profile, region)` per `Start()` call
   and cached. If it fails, AWS-flavored fetchers fail-fast with a clear
   message before exec.
-- KnowBe4-flavored fetchers are similarly fail-fasted on a non-empty
-  `KNOWBE4_API_KEY` in the resolved env (runner-side, not a TUI gate).
-- All other "missing X token" failures surface as ordinary non-zero
-  exits from the fetcher script itself; the operator opens Secrets,
-  sets the key, and retries.
+- Non-AWS fetchers (KnowBe4, Okta, etc.) do not get runner-side secret
+  preflight. Missing tokens surface as ordinary non-zero exits from the
+  fetcher script; the operator opens Secrets, sets the key, and retries.

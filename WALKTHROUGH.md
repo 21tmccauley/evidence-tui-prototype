@@ -21,10 +21,11 @@
 6. [The Mock runner — scripted, deterministic, no goroutines](#part-6--the-mock-runner)
 7. [The Real runner — subprocesses, pipes, goroutines](#part-7--the-real-runner)
 8. [The Catalog — JSON, `//go:embed`, custom unmarshal](#part-8--the-catalog)
-9. [The screens — Welcome, Select, Run, Review](#part-9--the-screens)
-10. [Wiring — root model and `main.go`](#part-10--wiring)
-11. [Why we did it this way](#part-11--why-we-did-it-this-way)
-12. [Reading order — where to start for common tasks](#part-12--reading-order)
+9. [The screens — Welcome, Secrets, Select, Run, Review](#part-9--the-screens)
+10. [Secrets, output, preflight, uploader — the support packages](#part-10--support-packages)
+11. [Wiring — root model and `main.go`](#part-11--wiring)
+12. [Why we did it this way](#part-12--why-we-did-it-this-way)
+13. [Reading order — where to start for common tasks](#part-13--reading-order)
 
 ---
 
@@ -37,13 +38,18 @@ that already exist in a sibling repo (`evidence-fetchers/`). Our job is the
 *UI* and the *orchestration*: pick which scripts to run, run them in
 parallel, stream their output, classify their results, package the artifacts.
 
-The program is built around four screens:
+The program is built around five screens:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│  Welcome  ───────►  Select  ───────►  Run  ───────►  Review  ───►  exit  │
-│  pick a profile    pick fetchers     stream output   summary +           │
-│                                                      mock upload         │
+│  Welcome  ───►  Select  ───►  Run  ───►  Review  ──►  Paramify upload    │
+│  pick a profile pick fetchers stream    summary +     (real, via Python  │
+│  + AWS pre-      + filter      output   evidence dir   pusher subprocess)│
+│  flight check                                                            │
+│       │                                                                  │
+│       └──── Secrets (s) ◄──── any screen can detour to set keys ─────┐  │
+│                                                                       │  │
+│  Review re-routes to Secrets if PARAMIFY_UPLOAD_API_TOKEN is missing ─┘  │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -54,12 +60,21 @@ turn fetcher selections into running work:
   records"). No subprocess, no AWS, no network. Powers the demo, the tests,
   and screenshots.
 - **Real runner**: invokes actual scripts via `os/exec`, captures
-  stdout/stderr line-by-line, runs an AWS pre-flight check, classifies
-  results, writes log files. The thing that ships.
+  stdout/stderr line-by-line, runs an AWS pre-flight check (cached on
+  disk), expands selections into multi-instance targets, classifies
+  results, writes per-fetcher log files and a `summary.json`. The thing
+  that ships.
+
+A separate **uploader** package wraps the existing
+`evidence-fetchers/2-create-evidence-sets/paramify_pusher.py` script so the
+Review screen can do a real upload — not a mock animation — when an
+upload token is configured.
 
 The whole thing is one statically-linked Go binary with the catalog of
-fetchers (`evidence_fetchers_catalog.json`) baked in via `//go:embed`. No
-runtime dependencies, no Python, no `pip install`.
+fetchers (`evidence_fetchers_catalog.json`) baked in via `//go:embed`.
+Operators don't need a separate `paramify_pusher` install — but Python 3
+is required at runtime for live mode (the fetcher scripts and the upload
+pusher are Python; we shell out).
 
 ---
 
@@ -154,10 +169,13 @@ all of them. That's it.
 
 ```
 evidence-tui-prototype/
-├── main.go                              ← program entrypoint, flag parsing
+├── main.go                              ← program entrypoint, flag parsing,
+│                                          runner+uploader+secrets wiring
 ├── go.mod / go.sum                      ← Go module metadata
 ├── DESIGN.md                            ← product design doc
+├── README.md                            ← short user-facing intro
 ├── WALKTHROUGH.md                       ← this file
+├── docs/                                ← architecture truths + diagrams
 └── internal/
     ├── app/
     │   ├── keys.go                      ← global key bindings
@@ -172,25 +190,50 @@ evidence-tui-prototype/
     │   └── embedded/
     │       └── evidence_fetchers_catalog.json   ← baked into the binary
     ├── runner/
-    │   ├── runner.go                    ← THE interface
-    │   ├── messages.go                  ← public message types
-    │   ├── types.go                     ← FetcherID, Status, helpers
+    │   ├── runner.go                    ← Runner + ProfileConfigurer interfaces
+    │   ├── messages.go                  ← public msgs (Started/Output/Targets/
+    │   │                                   Finished/StallTick) + Target struct
+    │   ├── types.go                     ← FetcherID, Status, StallThreshold
     │   ├── sender.go                    ← Sender interface (goroutine bridge)
-    │   ├── exec.go                      ← exec.Cmd builder (runner contract)
-    │   ├── awsflight.go                 ← AWS pre/post-flight checks
-    │   ├── timeout.go                   ← per-fetcher timeout escalation
-    │   ├── multiinstance.go             ← env-namespaced fan-out
+    │   ├── exec.go                      ← Config + exec.Cmd builder
+    │   ├── awsflight.go                 ← AuthChecker iface + AWS pre/post-flight
+    │   ├── timeout.go                   ← FETCHER_TIMEOUT + ssllabs floor
+    │   ├── multiinstance.go             ← GITLAB_PROJECT_N / AWS_REGION_N fan-out
+    │   ├── summary.go                   ← summary.json writer (Python schema)
     │   └── real.go                      ← the production runner
     ├── mock/
     │   ├── fetchers.go                  ← Fetcher struct + catalog adapter
     │   ├── runner.go                    ← scripted Beat sequences
     │   ├── runner_adapter.go            ← Runner interface impl
     │   └── fixtures.go                  ← fake stdout used by the scripts
+    ├── secrets/
+    │   ├── store.go                     ← Store interface + key constants
+    │   ├── env.go                       ← read-only Store backed by os.Environ
+    │   ├── keychain.go                  ← OS keychain Store (macOS Keychain etc.)
+    │   ├── memory.go                    ← in-memory Store (tests)
+    │   ├── merged.go                    ← Primary+Fallback (keychain → env)
+    │   ├── environ.go                   ← BuildEnviron: merge store into child env
+    │   └── requirements.go              ← per-source secret metadata table
+    ├── output/
+    │   ├── paths.go                     ← XDG/PARAMIFY_FETCHER_HOME resolution
+    │   └── session.go                   ← SessionLog + SenderTap (msg → log)
+    ├── preflight/
+    │   ├── tools.go                     ← `which` checks for aws/jq/bash/…
+    │   ├── profiles.go                  ← parse ~/.aws/config for profiles
+    │   └── service.go                   ← cached AWS auth + SSO login runner
+    ├── uploader/
+    │   ├── uploader.go                  ← Uploader interface
+    │   ├── python.go                    ← shells out to paramify_pusher.py
+    │   └── paramify.go                  ← Go HTTP client (alternative path)
+    ├── evidence/
+    │   ├── evidence_sets.go             ← writes evidence_sets.json per run
+    │   └── instructions_api.go          ← optional Paramify instructions fetch
     ├── screens/
-    │   ├── welcome.go                   ← profile picker
+    │   ├── welcome.go                   ← profile picker + AWS preflight
+    │   ├── secrets.go                   ← key editor (catalog-source + focused mode)
     │   ├── select.go                    ← fetcher selection
     │   ├── run.go                       ← live run view
-    │   └── review.go                    ← results + upload
+    │   └── review.go                    ← results + real Paramify upload
     └── root/
         ├── model.go                     ← root model: routes between screens
         └── smoke_test.go                ← end-to-end walk
@@ -240,6 +283,11 @@ type Runner interface {
     Retry(id FetcherID) tea.Cmd
     Bind(s Sender)
 }
+
+// Optional secondary interface — only the real runner implements it.
+type ProfileConfigurer interface {
+    ConfigureProfile(profile, region string)
+}
 ```
 
 Any type with these six methods *is a* `Runner`. You don't declare "this
@@ -252,6 +300,21 @@ Both `*mock.MockRunner` (in `internal/mock/runner_adapter.go`) and
 `*runner.RealRunner` (in `internal/runner/real.go`) satisfy this
 interface. The screens don't know or care which one they have. That's the
 "seam" — swap one for the other and nothing else changes.
+
+`ProfileConfigurer` is an example of **interface upgrading**: the root
+model takes a generic `Runner`, but when the user picks a profile on
+Welcome it does a type assertion:
+
+```go
+// internal/root/model.go
+if configurable, ok := m.runner.(runner.ProfileConfigurer); ok {
+    configurable.ConfigureProfile(msg.Profile.Name, msg.Profile.Region)
+}
+```
+
+The mock doesn't need profiles, so it doesn't implement
+`ProfileConfigurer` — and the assertion harmlessly fails. The real runner
+does, so its `cfg.Profile` / `cfg.Region` get updated before `Start()`.
 
 A common gotcha: if you change the interface, every implementation breaks.
 That's a feature, not a bug. The compiler stops you before you ship a
@@ -704,12 +767,20 @@ what you *use*, not what's *available*.
 
 ```go
 // internal/runner/messages.go      ← public, anyone can produce/consume
-type StartedMsg  struct{ ID FetcherID }
-type OutputMsg   struct{ ID FetcherID; Line string }
-type FinishedMsg struct{ ID FetcherID; Status Status; ExitCode int; ErrorReason string }
-type TargetsMsg  struct{ Targets []Target }
+type StartedMsg   struct{ ID FetcherID }
+type OutputMsg    struct{ ID FetcherID; Line string }
+type FinishedMsg  struct{ ID FetcherID; Status Status; ExitCode int; ErrorReason string }
+type Target       struct{ ID FetcherID; BaseID FetcherID; Label string }
+type TargetsMsg   struct{ Targets []Target }
 type StallTickMsg struct{}
 ```
+
+`TargetsMsg` is what the real runner emits at the very start of `Start()`
+to tell the Run screen "the IDs you gave me expanded to *these* concrete
+cards." For a plain `EVD-S3-ENC` selection on a single AWS profile, it's
+1:1. For a multi-instance config (`AWS_REGION_2_FETCHERS=...`) it can
+expand into `EVD-S3-ENC_region_2`, `EVD-S3-ENC_region_3`, etc. The screen
+re-keys its per-card state by the targets it gets.
 
 ```go
 // internal/mock/runner_adapter.go  ← private, never leaves this package
@@ -852,32 +923,71 @@ recurs in the real runner too.
 
 `internal/runner/real.go` is the production runner: it spawns
 subprocesses, captures stdout/stderr, runs AWS pre-flight checks,
-classifies results, writes log files. It uses goroutines because
-subprocesses are blocking.
+classifies results, writes per-fetcher log files, expands selections
+into multi-instance targets, and writes `summary.json` at end-of-run.
+It uses goroutines because subprocesses are blocking.
+
+### Config — what gets injected at construction
+
+```go
+// internal/runner/exec.go
+type Config struct {
+    Profile                string
+    Region                 string
+    FetcherRepoRoot        string                       // path to evidence-fetchers checkout
+    OutputRoot             string                       // per-run evidence dir
+    EvidenceSetsCompatPath string                       // mirror evidence_sets.json into the repo
+    Scripts                map[FetcherID]catalog.Script
+    AuthChecker            AuthChecker                  // seam (real or fake)
+    Environ                []string                     // child-process env (with secrets)
+    MaxParallel            int                          // <1 → 1 (default; avoids tmp races)
+}
+```
+
+Two fields worth calling out:
+
+- **`AuthChecker`** is an interface (`internal/runner/awsflight.go`).
+  `CLIAuthChecker{}` shells out to `aws sts get-caller-identity`. Tests
+  inject a fake. `main.go` wraps it in `preflight.CachedAuthChecker` so
+  the same on-disk pre-flight cache the Welcome screen wrote is reused
+  during the run — no redundant `aws sts` calls per fetcher.
+- **`Environ`** is the explicit child-process environment. We don't pass
+  `os.Environ()` directly; we run it through `secrets.BuildEnviron(...)`
+  first so keychain-stored secrets land in the subprocess without ever
+  touching the parent process's environment. (See Part 10 for the
+  Secrets package.)
 
 ### The lifecycle of one fetcher run
 
 ```
-        Start(ids)                                        ┌── pipeReader (stdout)
-            │                                             │
-            ▼                                             │
-   queue ─►─── fillRunning ──► spawn execute() goroutine ─┤── pipeReader (stderr)
-                                       │                  │
-                                       ▼                  │
-                              cmd.Start() and             │
-                              wait for both pipes ────────┘
-                                       │
-                                       ▼
-                                  cmd.Wait()
-                                       │
-                                       ▼
-                            classify(exit, stderr, post-flight)
-                                       │
-                                       ▼
-                              FinishedMsg → screen
-                                       │
-                                       ▼
-                                   advance() — refill the queue
+        Start(ids) ──► writeEvidenceSets ──► InstancesFromEnv (multi-inst expand)
+            │                                      │
+            ▼                                      ▼
+   queue ◄── states populated ◄── targets ──► TargetsMsg → Run screen
+            │
+            ▼
+       fillRunning  ──► spawn execute() goroutine ─┐
+        (cap by                  │                 ├── pipeReader (stdout) ─┐
+         MaxParallel)            ▼                 ├── pipeReader (stderr) ─┤
+                       AWS preflight (memo)        │                        │
+                                 │                 └── (each tee→ log file +├──► sender.Send(OutputMsg)
+                                 ▼                                          │
+                        cmd.Start() + wg.Wait() ◄─────────────────────────┘
+                                 │
+                                 ▼
+                            cmd.Wait()
+                                 │
+                                 ▼
+                       classify(deadline, cancel, exit, AWS post-flight)
+                                 │
+                                 ▼
+                          FinishedMsg → screen
+                                 │
+                                 ▼
+                          advance() — fillRunning again
+                                 │
+                                 ▼ (when all states terminal)
+                       SummaryWriter.WriteSummary → summary.json
 ```
 
 ### Spawning the subprocess
@@ -1026,6 +1136,51 @@ Don't write this from scratch unless you know why each lock is there.
 Most of the time you want the simple "one mutex, hold it briefly"
 pattern. This is the exception.
 
+In `main.go`, the runner is constructed with
+`preflight.CachedAuthChecker` instead of bare `CLIAuthChecker`, so the
+result is *also* persisted to a JSON cache file
+(`pre-flight-cache.json`) with a 5-minute TTL. The Welcome screen wrote
+that file before the run started; reusing it avoids a second `aws sts`
+shell-out at the top of the first AWS fetcher.
+
+### Multi-instance expansion
+
+`internal/runner/multiinstance.go` parses two env-var conventions
+inherited from the upstream Python runner:
+
+- `GITLAB_PROJECT_<N>_URL=...`, `GITLAB_PROJECT_<N>_API_ACCESS_TOKEN=...`,
+  `GITLAB_PROJECT_<N>_FETCHERS=<csv-of-ids>` — fan out the listed
+  fetchers across multiple GitLab projects.
+- `AWS_REGION_<N>_REGION=...`, `AWS_REGION_<N>_PROFILE=...`,
+  `AWS_REGION_<N>_FETCHERS=<csv>` — fan out across regions/profiles.
+
+`InstancesFromEnv(ids, scripts, env)` returns a `[]Instance`. For a
+plain selection without these vars, each instance is `Instance{ID: id,
+BaseID: id}` (1:1). With them, one selected `EVD-FOO-BAR` may produce
+`EVD-FOO-BAR_region_2`, `EVD-FOO-BAR_region_3`, etc. — each with its
+own per-target output directory and its own `Env` overlay.
+
+### Per-fetcher timeouts
+
+`internal/runner/timeout.go` resolves the subprocess timeout in three
+layers (highest precedence first):
+
+1. `<UPPER_SCRIPT_KEY>_TIMEOUT` env var — per-fetcher override.
+2. `FETCHER_TIMEOUT` env var — global default.
+3. 300 seconds — hard-coded fallback.
+
+Plus a special case: `ssllabs_tls_scan` is floored at 3600 seconds
+(overridable via `SSLLABS_FETCHER_TIMEOUT`). Qualys SSL Labs polls
+take minutes per host; the default 300s would always cut them off.
+
+### summary.json at end-of-run
+
+`internal/runner/summary.go` emits `summary.json` in the run's evidence
+directory the moment all fetchers reach terminal state. The schema
+matches what the upstream Python runner writes (`script_name`,
+`evidence_directory`, per-result entries, error reasons), so the
+existing Paramify uploader can consume our output without changes.
+
 ---
 
 ## Part 8 — The Catalog
@@ -1125,34 +1280,36 @@ Each screen is its own `tea.Model`. They have local state and don't
 import each other. They communicate via *messages* — typed structs
 that bubble up to the root model.
 
-### Welcome — the simplest
+### Welcome — profile picker + AWS pre-flight
+
+`internal/screens/welcome.go` shows the AWS profile list (loaded by
+`preflight.LoadAWSProfiles` from `~/.aws/config`) plus a tools row
+("aws ✓ jq ✓ python3 ✓ kubectl ✗ …" via `preflight.CheckTools`). Hitting
+enter doesn't immediately advance — it kicks off an AWS credential check
+through `preflight.Service.CheckAWS`, which uses the cached
+`pre-flight-cache.json` if a recent successful check exists.
+
+If credentials check out, Welcome emits `SelectedProfileMsg` and the
+root model advances to Select. If they don't, the screen surfaces the
+error inline; if it looks like an SSO expiry, pressing `o` shells out
+to `aws sso login --profile <name>` (handled by Welcome's
+`loginCmd`).
+
+Welcome also exposes `s` → `OpenSecretsMsg`, opening the Secrets editor
+without leaving the welcome flow.
 
 ```go
 // internal/screens/welcome.go (sketch)
 type WelcomeModel struct {
-    profiles []Profile
-    cursor   int
-    keys     app.KeyMap
+    profiles   []Profile
+    tools      []preflight.ToolStatus
+    credential *preflight.Service
+    cursor     int
+    // ...checking, ssoReady, status flags
 }
 
 type SelectedProfileMsg struct{ Profile Profile }
-
-func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.KeyMsg:
-        switch {
-        case key.Matches(msg, m.keys.Up):
-            if m.cursor > 0 { m.cursor-- }
-        case key.Matches(msg, m.keys.Down):
-            if m.cursor < len(m.profiles)-1 { m.cursor++ }
-        case key.Matches(msg, m.keys.Enter):
-            return m, func() tea.Msg {
-                return SelectedProfileMsg{Profile: m.profiles[m.cursor]}
-            }
-        }
-    }
-    return m, nil
-}
+type OpenSecretsMsg     struct{}
 ```
 
 Things worth noticing:
@@ -1160,10 +1317,36 @@ Things worth noticing:
 - **Type switch** (`switch msg := msg.(type)`). We don't know what kind
   of message we got; we case on the type. The new variable `msg` inside
   each case is typed as `tea.KeyMsg` (or whatever).
-- **Closure-as-Cmd**: `return m, func() tea.Msg { return SelectedProfileMsg{...} }` —
-  the function literal is the command. When run, it produces the
-  message.
-- **No global state.** The cursor is an `int` field on the model.
+- **Closure-as-Cmd**: enter → `m.checkProfileCmd(p)` returns
+  `func() tea.Msg { return profileCheckDoneMsg{...} }`. Bubble Tea runs
+  it on a goroutine; the result message arrives in the next Update.
+- **No global state.** The cursor and async flags are fields on the
+  model.
+
+### Secrets — the editor that's not on the linear path
+
+`internal/screens/secrets.go` is reachable from any screen that knows how
+to emit a `screens.OpenSecretsMsg` (Welcome via `s`, Select via `s`,
+Review when it discovers the upload token is missing). When the operator
+finishes, the screen emits `SecretsDoneMsg` and the root returns to
+whichever screen sent them in.
+
+Two construction modes:
+
+- **Default mode**: `NewSecrets(keys, store)` shows a two-pane layout —
+  a left source list (paramify pseudo-source plus every catalog source
+  from `mock.Sources()`), a right key list with provenance ("set
+  (keychain)" vs "set (env)").
+- **Focused mode**: `NewSecretsWithOptions(keys, store,
+  SecretsOptions{FocusKeys: [...], Prompt: "..."})` collapses the screen
+  into a single section listing only the keys the caller cares about.
+  Used by Review when it routes to Secrets to fix
+  `PARAMIFY_UPLOAD_API_TOKEN` mid-upload.
+
+Set values are written through `secrets.Store.Set`. With the default
+`merged` backend (keychain primary + env fallback), writes go to the
+OS keychain — env values remain read-only. Each fetcher subprocess gets
+the merged view via `secrets.BuildEnviron`.
 
 ### Select — multi-pane with filter
 
@@ -1260,17 +1443,23 @@ The Run screen forwards every message it sees to the runner. The
 runner's Update ignores messages it doesn't care about. This is the
 "the runner is also a state machine" pattern from Part 5.
 
-### Review — paged table
+### Review — paged table + real Paramify upload
 
 ```go
 // internal/screens/review.go
 type ReviewModel struct {
-    keys    app.KeyMap
-    results []RunResult
-    cursor  int
-    offset  int                    // for paging
-    phase   uploadPhase
-    progress progress.Model
+    keys        app.KeyMap
+    results     []RunResult
+    evidenceDir string                  // shown when non-empty
+    cursor      int
+    offset      int                     // for paging
+    phase       uploadPhase
+    progress    progress.Model
+
+    store           secrets.Store       // re-checked at u-press time
+    paramifyFactory ParamifyFactory     // builds an uploader on demand
+    uploadSummary   uploader.Summary
+    uploadErr       error
 }
 ```
 
@@ -1290,9 +1479,177 @@ if m.cursor < m.offset {
 This is the cheapest possible "virtualized list" — we always render
 exactly 10 rows regardless of how many results there are.
 
+#### Upload — when `u` is pressed
+
+In demo mode the factory is `nil`, so `u` runs a scripted progress-bar
+animation and that's it (the original "mock upload"). In live mode,
+`main.go` plumbs a `ParamifyFactory` into the root model:
+
+```go
+paramifyFactory = func() (uploader.Uploader, error) {
+    env, _ := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+    return uploader.NewPython(uploader.PythonConfig{
+        FetcherRepoRoot: repoAbs,
+        BaseURL:         firstEnvValue(env, secrets.KeyParamifyAPIBaseURL),
+        Environ:         env,
+    })
+}
+```
+
+Two things to notice:
+
+- The factory is invoked **at upload time**, not at Review construction.
+  If the operator edits `PARAMIFY_API_BASE_URL` or
+  `PARAMIFY_UPLOAD_API_TOKEN` in Secrets between the run finishing and
+  pressing `u`, the upload picks up the new values.
+- Before invoking the factory, Review re-reads the upload token from
+  `secrets.Store`. If it's empty, Review emits
+  `OpenSecretsForReviewMsg` — the root opens Secrets in *focused mode*
+  for `PARAMIFY_UPLOAD_API_TOKEN` + `PARAMIFY_API_BASE_URL`, and
+  returns to Review on `SecretsDoneMsg`.
+
+The actual upload runs as a tea.Cmd that calls
+`uploader.Uploader.ProcessEvidenceDir(ctx, evidenceDir)`. Today's
+implementation (`uploader.PythonUploader`) shells out to
+`evidence-fetchers/2-create-evidence-sets/paramify_pusher.py`. There's a
+parallel native Go path in `internal/uploader/paramify.go` for a future
+direct-HTTP swap.
+
 ---
 
-## Part 10 — Wiring
+## Part 10 — Support packages
+
+These four packages don't fit cleanly into "runner" or "screens" — they
+sit alongside both. Each is small (one or two files); together they
+account for most of what changed when the prototype graduated from
+"demo with a hard-coded Python uploader stub" to "actually uploads
+evidence."
+
+### `internal/secrets` — keys without a config file
+
+Goal: let an operator set `PARAMIFY_UPLOAD_API_TOKEN`, `OKTA_API_TOKEN`,
+etc. from inside the TUI without writing them to disk in plaintext.
+
+```go
+// internal/secrets/store.go
+type Store interface {
+    Get(key string) (value string, found bool, err error)
+    Set(key, value string) error
+    Delete(key string) error
+    List() ([]string, error)
+    Source() string                              // "keychain", "env", "merged"
+    Writable() bool
+    Locate(key string) (source string, found bool, err error)
+    ParamifyUploadAPIToken() (string, error)
+}
+```
+
+Three concrete implementations:
+
+- `secrets.Env` — read-only view of `os.Environ()`. Exists so the
+  `merged` backend can fall back to env vars without rewriting them.
+- `secrets.Keychain` — wraps the OS keychain (macOS Keychain, Linux
+  Secret Service, Windows Credential Manager via `go-keyring`). Set,
+  Delete, List all work. Read-side falls through to OS APIs.
+- `secrets.Merged` — `Primary` (keychain) layered over `Fallback`
+  (env). Reads check Primary first; writes go to `Writer` (keychain by
+  default). The UI's "set (keychain)" / "set (env)" provenance comes
+  from `Locate(key)`.
+
+`secrets.BuildEnviron(parentEnv, store, keys)` returns a child-process
+environ slice with secret values overlaid. We use this to populate
+`Config.Environ` for the real runner so secrets reach the fetcher
+subprocess without touching the TUI's own `os.Environ`.
+
+`secrets.ValidateKey` enforces an allowlist (defined in
+`requirements.go`). Trying to `Set` an unknown key returns an error —
+this prevents typos from quietly storing arbitrary process environment
+in the OS keychain.
+
+### `internal/output` — paths and the session log
+
+`output.Home()` is the data root. Resolution order:
+
+1. `PARAMIFY_FETCHER_HOME` env var (override)
+2. `XDG_DATA_HOME/paramify-fetcher` (XDG spec)
+3. `~/.local/share/paramify-fetcher` (fallback)
+
+From there: `Home/evidence/<run-ts>/` for per-run evidence,
+`Home/logs/session-<run-ts>.log` for the session log.
+`output.RunTimestamp(time.Now())` produces the filesystem-safe
+`2026-05-06T14-23-01Z` stem reused by both directories.
+
+`output.SessionLog` is a concurrent-safe append-only log. The CLI opens
+one at startup and `defer`s `Close()`. `output.SenderTap` wraps
+`runner.Sender` so `StartedMsg` / `FinishedMsg` are mirrored into the
+log file (note: we never log `OutputMsg` — those go to per-fetcher
+`stdout.log` / `stderr.log` files inside the evidence dir).
+
+### `internal/preflight` — credential checks the UI shares with the runner
+
+```go
+// internal/preflight/service.go
+type Service struct {
+    Checker runner.AuthChecker      // the actual `aws sts` shellout
+    Login   LoginRunner             // optional: SSO repair flow
+    Cache   string                  // path to JSON cache (e.g. pre-flight-cache.json)
+    TTL     time.Duration           // default 5m
+}
+```
+
+`Service.CheckAWS(ctx, profile, region)` returns a `Result{OK,
+FromCache, SSOError, Err}`. If a recent successful check sits in the
+cache, it returns immediately; otherwise it shells out, classifies the
+error (SSO expired vs anything else), and writes the result back to
+the cache. The Welcome screen calls this to gate continuation; the real
+runner reuses the **same** cache via `preflight.CachedAuthChecker`
+(which adapts `Service` to the runner's `AuthChecker` interface). One
+auth check per profile/region per 5-minute window — not one per
+fetcher.
+
+`preflight.LoadAWSProfiles("")` parses `~/.aws/config` so Welcome can
+present a real profile list without us hard-coding anything.
+`preflight.CheckTools([...])` runs `which` for each named binary so
+Welcome can warn the operator that, say, `python3` is missing before
+Run fails 12 times in a row.
+
+### `internal/uploader` — the Paramify push
+
+```go
+// internal/uploader/uploader.go
+type Uploader interface {
+    ProcessEvidenceDir(ctx context.Context, dir string) (Summary, error)
+}
+```
+
+Two implementations:
+
+- `uploader.PythonUploader` (`python.go`) — shells out to
+  `evidence-fetchers/2-create-evidence-sets/paramify_pusher.py`. The
+  pusher reads the per-run evidence directory, posts evidence sets to
+  Paramify's REST API, and writes back receipts. We pass the upload
+  token and base URL through the child-process environment so the
+  Python script doesn't have to know about our `secrets.Store`.
+- `uploader.ParamifyClient` (`paramify.go`) — a native Go HTTP client
+  for the same API. Not currently wired into Review, but exists so we
+  can drop the Python dependency once the contract tests pass on it.
+
+The `uploader.Summary` returned to Review carries upload counts and
+per-evidence-set status, which Review renders inline once the upload
+finishes.
+
+### `internal/evidence` — `evidence_sets.json`
+
+`evidence.Render(selectedIDs, scripts)` builds the
+`evidence_sets.json` document the Python pusher expects. The real
+runner calls `evidence.Write(...)` at the start of `Start()` so the
+file is in the per-run evidence dir before any fetcher runs (and is
+optionally mirrored back into the fetcher repo at
+`Config.EvidenceSetsCompatPath` for the legacy run path).
+
+---
+
+## Part 11 — Wiring
 
 ### The root model
 
@@ -1300,24 +1657,39 @@ exactly 10 rows regardless of how many results there are.
 // internal/root/model.go
 type Model struct {
     keys    app.KeyMap
-    screen  Screen                  // which sub-model is active
+    screen  Screen                  // Welcome / Secrets / Select / Run / Review
     runner  runner.Runner           // shared across sub-models that need it
 
+    welcomeOpts     screens.WelcomeOptions
+    evidenceDir     string
+    paramifyFactory screens.ParamifyFactory   // nil → demo upload animation
+    secrets         secrets.Store
+    pendingReview   bool                       // true when Secrets was opened from Review
+    secretBack      Screen                     // where to return after Secrets
+
     welcome screens.WelcomeModel
+    sec     screens.SecretsModel
     sel     screens.SelectModel
     run     screens.RunModel
     review  screens.ReviewModel
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    // Global escape hatches
-    if k, ok := msg.(tea.KeyMsg); ok {
-        if k.String() == "ctrl+c" { return m, tea.Quit }
-        // ...
-    }
+    // Global escape hatches: ctrl+c, q (most screens), ?, etc.
+    // ...
 
     switch msg := msg.(type) {
+    case screens.OpenSecretsMsg:
+        m.secretBack = m.screen
+        m.sec = screens.NewSecrets(m.keys, m.secrets).Resize(m.width, m.height)
+        m.screen = ScreenSecrets
+        return m, m.sec.Init()
+
     case screens.SelectedProfileMsg:
+        m.profile, m.region = msg.Profile.Name, msg.Profile.Region
+        if cfg, ok := m.runner.(runner.ProfileConfigurer); ok {
+            cfg.ConfigureProfile(msg.Profile.Name, msg.Profile.Region)
+        }
         m.sel = screens.NewSelect(m.keys, m.profile).Resize(m.width, m.height)
         m.screen = ScreenSelect
         return m, m.sel.Init()
@@ -1328,14 +1700,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         return m, m.run.Init()
 
     case screens.RunCompleteMsg:
-        m.review = screens.NewReview(m.keys, m.profile, msg.Results).Resize(m.width, m.height)
+        rev := screens.NewReview(m.keys, m.profile, msg.Results).
+            WithEvidenceDir(m.evidenceDir)
+        if m.paramifyFactory != nil {
+            rev = rev.WithParamifyUpload(m.secrets, m.paramifyFactory)
+        }
+        m.review = rev.Resize(m.width, m.height)
         m.screen = ScreenReview
         return m, m.review.Init()
+
+    case screens.OpenSecretsForReviewMsg:
+        // Review couldn't upload — token missing. Open Secrets in focused
+        // mode and return here when done.
+        m.pendingReview = true
+        m.secretBack = ScreenReview
+        m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
+            FocusKeys: []string{secrets.KeyParamifyUploadAPIToken, secrets.KeyParamifyAPIBaseURL},
+            Prompt:    "Paramify upload needs PARAMIFY_UPLOAD_API_TOKEN ...",
+        }).Resize(m.width, m.height)
+        m.screen = ScreenSecrets
+        return m, m.sec.Init()
+
+    case screens.SecretsDoneMsg:
+        // Return to whichever screen sent us here.
+        if m.pendingReview { m.pendingReview = false; m.screen = ScreenReview; return m, nil }
+        // ...else: ScreenSelect / ScreenRun / Welcome
     }
 
-    // Otherwise: route to the active screen
+    // Otherwise: route to the active screen.
     switch m.screen {
     case ScreenWelcome: m.welcome, cmd = m.welcome.Update(msg)
+    case ScreenSecrets: m.sec, cmd     = m.sec.Update(msg)
     case ScreenSelect:  m.sel, cmd     = m.sel.Update(msg)
     case ScreenRun:     m.run, cmd     = m.run.Update(msg)
     case ScreenReview:  m.review, cmd  = m.review.Update(msg)
@@ -1343,12 +1738,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 ```
 
-The root does two things:
+The root does three things:
 
-1. Catches **transition messages** (the `Selected*Msg` / `*ConfirmedMsg`
-   /  `*CompleteMsg` types each screen produces) and switches the
-   active screen.
-2. Forwards everything else to the currently active sub-model.
+1. **Catches transition messages** (the `Selected*Msg` / `*ConfirmedMsg` /
+   `*CompleteMsg` types) and switches the active screen.
+2. **Routes Secrets detours.** `OpenSecretsMsg` and
+   `OpenSecretsForReviewMsg` push the current screen onto a one-deep
+   "back" slot; `SecretsDoneMsg` pops it. This is what makes Secrets
+   reachable from any other screen without each screen having to know
+   about it.
+3. **Forwards everything else** to the currently active sub-model.
+
+The root is also where `runner.ProfileConfigurer` is used: when the
+operator picks a profile, the type assertion either succeeds (real
+runner — set the AWS profile/region) or fails harmlessly (mock runner
+— ignore).
 
 This is the **finite state machine** pattern at the screen level, on
 top of the FSM pattern at the runner level. Composable, easy to test —
@@ -1357,31 +1761,59 @@ each screen can be exercised in isolation.
 ### `main.go` — flag parsing and runner wiring
 
 ```go
-// main.go
+// main.go (sketch)
 func main() {
-    demo := flag.Bool("demo", true, "use the deterministic mock runner")
-    catalogPath := flag.String("catalog", "", "override the embedded catalog (development)")
-    profile := flag.String("profile", "", "AWS profile (real runner)")
-    region := flag.String("region", "", "AWS region (real runner)")
-    repoRoot := flag.String("fetcher-repo-root", "", "path to evidence-fetchers checkout (real runner)")
+    demo            := flag.Bool("demo", true, "use the deterministic mock runner")
+    catalogPath     := flag.String("catalog", "", "override the embedded catalog (dev)")
+    profile         := flag.String("profile", "", "AWS profile (real runner)")
+    region          := flag.String("region", "", "AWS region (real runner)")
+    repoRoot        := flag.String("fetcher-repo-root", "", "path to evidence-fetchers checkout")
+    outputRoot      := flag.String("output-root", "", "explicit per-run evidence dir (overrides XDG)")
+    fetcherParallel := flag.Int("fetcher-parallel", 1, "max concurrent fetcher subprocesses")
+    secretsBackend  := flag.String("secrets-backend", "merged", "merged|keychain|env")
     flag.Parse()
 
-    if *catalogPath != "" {
-        mock.SetCatalogOverride(*catalogPath)
-    }
-    if err := mock.EnsureCatalog(); err != nil {
-        die(2, "catalog error: %v", err)
-    }
+    if *catalogPath != "" { mock.SetCatalogOverride(*catalogPath) }
+    if err := mock.EnsureCatalog(); err != nil { die(2, "catalog error: %v", err) }
 
-    var r runner.Runner
+    runTS := output.RunTimestamp(time.Now())
+    sessionLog, _ := output.OpenSessionLog(runTS)
+    defer sessionLog.Close()
+
+    secretStore, _ := buildSecretsStore(*secretsBackend)
+    runtimeEnv, _  := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+
+    var (
+        r               runner.Runner
+        welcomeOpts     screens.WelcomeOptions
+        evidenceDir     string
+        paramifyFactory screens.ParamifyFactory
+    )
     if *demo {
         r = mock.NewMockRunner(mock.Catalog())
     } else {
-        r = buildRealRunner(*profile, *region, *repoRoot, *catalogPath)
+        var repoAbs string
+        r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot,
+            *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv)
+        welcomeOpts = realWelcomeOptions(*profile, *region)   // profiles + tools + cred service
+        paramifyFactory = func() (uploader.Uploader, error) {
+            env, _ := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+            return uploader.NewPython(uploader.PythonConfig{
+                FetcherRepoRoot: repoAbs,
+                BaseURL:         firstEnvValue(env, secrets.KeyParamifyAPIBaseURL),
+                Environ:         env,
+            })
+        }
     }
 
-    p := tea.NewProgram(root.New(r), tea.WithAltScreen(), tea.WithMouseCellMotion())
-    r.Bind(p)                                       // ← the goroutine bridge
+    rootModel := root.NewWithOptions(r, root.Options{
+        Welcome:         welcomeOpts,
+        EvidenceDir:     evidenceDir,
+        ParamifyFactory: paramifyFactory,
+        Secrets:         secretStore,
+    })
+    p := tea.NewProgram(rootModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
+    r.Bind(output.SenderTap{Inner: p, Log: sessionLog})   // ← log Started/Finished as they pass
     if _, err := p.Run(); err != nil { ... }
 }
 ```
@@ -1390,21 +1822,39 @@ The order matters:
 
 1. **Parse flags first.** Don't open the alt-screen if the user passed
    `--help`; let `flag.Parse` handle that.
-2. **Validate catalog before starting the TUI.** A catalog-error message
-   would be invisible if we'd already entered alt-screen mode.
-3. **Pick a runner.** Just an interface variable.
-4. **Wire it into the program.** `tea.NewProgram` creates the program;
-   `r.Bind(p)` gives the runner a way to push messages from goroutines.
-5. **Run.** `p.Run` blocks until the program exits.
+2. **Validate catalog and open the session log before the TUI.** A
+   catalog error would be invisible inside the alt-screen.
+3. **Build the secrets store and the merged child-process environ.**
+   Both the real runner (for AWS calls) and the Paramify factory need
+   these.
+4. **Pick a runner.** Just an interface variable. Real-mode also
+   produces a `WelcomeOptions` (profiles + tool checks + cached cred
+   service) and a `ParamifyFactory`.
+5. **Wire it into the program.** `tea.NewProgram` creates the program;
+   `r.Bind(SenderTap{Inner: p, Log: sessionLog})` gives the runner a
+   way to push messages from goroutines, with terminal-state messages
+   mirrored into the session log.
+6. **Run.** `p.Run` blocks until the program exits.
 
 The `--demo` flag defaults to `true` because the prototype's most
 common use is the demo. To run for real you'd pass
 `--demo=false --fetcher-repo-root=/path/to/evidence-fetchers
---profile=...`.
+[--profile=... --region=...]`.
+
+Most of the assembly happens in two helpers:
+
+- `buildRealRunner(...)` validates `--fetcher-repo-root`, loads the
+  catalog (embedded or `--catalog` override), resolves the per-run
+  evidence directory, and constructs `runner.NewReal(runner.Config{...})`
+  with `preflight.CachedAuthChecker` plumbed in for shared cred caching.
+- `buildSecretsStore(backend)` returns `secrets.Env`,
+  `secrets.Keychain`, or `secrets.Merged{Primary: keychain, Fallback:
+  env, Writer: keychain}`. The default `merged` is what the README
+  documents.
 
 ---
 
-## Part 11 — Why we did it this way
+## Part 12 — Why we did it this way
 
 A few questions a reader might have, with answers.
 
@@ -1472,8 +1922,8 @@ HTML templates, config defaults, SQL migrations, etc.
 
 ### Q: Why not use `github.com/spf13/cobra` for flag parsing?
 
-The prototype only has 5 flags, all at the top level. `flag` from the
-standard library handles that in 6 lines. Adding a third-party CLI
+The prototype only has a handful of top-level flags. `flag` from the
+standard library handles that in a few lines. Adding a third-party CLI
 framework would dwarf the actual feature it supports. We can adopt
 cobra later if subcommands appear (`paramify-fetcher run`,
 `paramify-fetcher list-presets`, etc.).
@@ -1481,6 +1931,38 @@ cobra later if subcommands appear (`paramify-fetcher run`,
 This is a recurring theme: **prefer the standard library** when it's
 sufficient. Every dependency is a vector for breakage on someone
 else's release schedule.
+
+### Q: Why a secrets package instead of just reading `os.Getenv`?
+
+Two reasons:
+
+- **The TUI needs to *write* secrets**, not just read them. Operators
+  set `PARAMIFY_UPLOAD_API_TOKEN` from the Secrets screen. Writing to
+  `os.Environ` only affects the parent process; we want the value to
+  persist across runs without touching shell rc files. The OS keychain
+  is the right place for that.
+- **We don't want secrets in the parent process's environment at all
+  if we can help it.** `secrets.BuildEnviron` constructs a child-only
+  environ slice. The TUI process itself doesn't need to read
+  `OKTA_API_TOKEN`; the fetcher subprocess does. Keeping the secret
+  out of `os.Environ` reduces the chance of it leaking into a crash
+  dump or a logging library that snapshots the environment.
+
+The `Store` interface gives us one seam: tests use
+`secrets.NewMemory()`, headless CI uses `secrets.Env`, interactive
+operators use `secrets.Merged{Primary: keychain, Fallback: env}`.
+
+### Q: Why does the uploader shell out to Python?
+
+The Python `paramify_pusher.py` already exists and already works
+against the production Paramify API. Reimplementing it in Go would be
+a rewrite for no immediate user-visible win, and would mean we have
+two implementations to keep in sync with API changes.
+
+`internal/uploader/paramify.go` is a Go-native HTTP client we can swap
+in once its contract tests cover everything the Python pusher does. At
+that point we drop `python3` as a runtime dependency for upload (live
+fetcher runs still need it, though).
 
 ### Q: What's the testing story?
 
@@ -1546,7 +2028,7 @@ Things you won't see (yet) and don't need to learn for this project:
 
 ---
 
-## Part 12 — Reading order
+## Part 13 — Reading order
 
 If your goal is...
 
@@ -1562,7 +2044,8 @@ If your goal is...
 
 - **"Add a new key binding"** — `internal/app/keys.go` (declare it),
   then handle it in whichever screen wants it. Update the footer hint
-  list in that screen's `View`.
+  list in that screen's `View`. Add a row to `helpSections()` in
+  `internal/root/model.go` so `?` describes it.
 
 - **"Understand how runs work end-to-end"** — read in this order:
   1. `internal/runner/runner.go` (the interface)
@@ -1570,6 +2053,8 @@ If your goal is...
   3. `internal/screens/run.go` (the consumer)
   4. `internal/mock/runner_adapter.go` (one implementation)
   5. `internal/runner/real.go` (the other implementation)
+  6. `internal/runner/multiinstance.go` (target expansion)
+  7. `internal/runner/summary.go` (end-of-run output)
 
 - **"Change how the catalog is loaded"** —
   `internal/catalog/{schema,loader,embedded}.go`. The decoder is in
@@ -1581,14 +2066,33 @@ If your goal is...
   add a case to `Build` in `internal/mock/runner.go`, optionally add
   an entry to `behaviorOverrides` to assign it to a specific fetcher.
 
+- **"Add a new secret key (e.g., `SLACK_BOT_TOKEN`)"** — add a `Key…`
+  constant in `internal/secrets/store.go`, add a row to the
+  `requirements.go` table so it surfaces under the right source on
+  the Secrets screen, and `secrets.RuntimeKeys()` will pick it up
+  automatically (the child-process environ pulls every key in
+  `AllSecretKeys()`).
+
+- **"Change how the upload works"** — start with
+  `internal/uploader/uploader.go` (the interface), then
+  `internal/uploader/python.go` for the current shellout path. The
+  Go-native HTTP path lives in `internal/uploader/paramify.go` and is
+  exercised by `mvp_contract_test.go`.
+
 - **"Wire the real runner into a deployment"** — read `main.go`'s
   `buildRealRunner`, then `internal/runner/exec.go`, then
-  `internal/runner/real.go`. The Phase 4–7 sections of `DESIGN.md`
-  cover what's still missing.
+  `internal/runner/real.go`. `internal/preflight/service.go` covers
+  the cached AWS auth check.
 
-- **"Write a test"** — start with `internal/root/smoke_test.go` for the
-  shape, then look at how it constructs a runner and feeds messages.
-  Most tests in this codebase don't need anything more elaborate.
+- **"Move evidence/log paths to a different location"** —
+  `internal/output/paths.go`. Override via
+  `PARAMIFY_FETCHER_HOME` or `--output-root`.
+
+- **"Write a test"** — start with `internal/root/smoke_test.go` for
+  the shape, then look at how it constructs a runner and feeds
+  messages. Heavier examples: `internal/runner/real_test.go` (real
+  runner with a fake AuthChecker), `internal/screens/secrets_test.go`
+  (secrets screen with `secrets.NewMemory()`).
 
 ---
 
@@ -1609,5 +2113,11 @@ If your goal is...
 | **Stall** | UI state for a running fetcher that hasn't produced output for `StallThreshold` (4s). Display-only — the fetcher is still "running." |
 | **Status** | Terminal lifecycle state of a fetcher: queued / running / ok / partial / failed / cancelled. |
 | **runIdx** | Per-fetcher counter incremented on cancel/retry. Used to invalidate stale messages from prior attempts. |
-| **Sender** | Smallest interface that lets a goroutine push messages into Bubble Tea's event loop. Implemented by `*tea.Program`. |
+| **Sender** | Smallest interface that lets a goroutine push messages into Bubble Tea's event loop. Implemented by `*tea.Program`; wrapped by `output.SenderTap` to mirror Started/Finished into the session log. |
+| **SessionLog** | Append-only `Home/logs/session-<run-ts>.log` for support diagnostics. Captures Started/Finished — never `OutputMsg` content. |
+| **Target** | One concrete card the Run screen renders. For non-multi-instance, `Target.ID == BaseID == FetcherID`. For multi-instance, `BaseID` is the catalog id; `ID` is per-instance. |
+| **Profile** | An AWS profile (from `~/.aws/config`) the operator picks on Welcome. The real runner re-uses it for `aws sts` and `--profile` subprocess args. |
+| **Pre-flight cache** | `pre-flight-cache.json` written by `preflight.Service`. 5-minute TTL. Both the Welcome screen and the real runner consume the same cache. |
+| **Secrets backend** | One of `merged`, `keychain`, `env`. Selected at startup with `--secrets-backend`. |
+| **Paramify upload** | The `u` action on Review. Today shells out to `evidence-fetchers/2-create-evidence-sets/paramify_pusher.py`; will eventually run through the native Go client in `internal/uploader/paramify.go`. |
 | **Preset** | (Future) A saved, named selection of fetchers — "FedRAMP Low", "Customer ACME". Stored as TOML. |
