@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
+	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
 	"github.com/paramify/evidence-tui-prototype/internal/screens"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
@@ -37,6 +38,7 @@ type Model struct {
 	evidenceDir     string
 	paramifyFactory screens.ParamifyFactory
 	secrets         secrets.Store
+	fetchers        []mock.Fetcher
 	pendingReview   bool
 	secretBack      Screen
 
@@ -64,6 +66,12 @@ type Options struct {
 
 	// Secrets enables editing secret values from the TUI.
 	Secrets secrets.Store
+
+	// Fetchers is the canonical fetcher list shown in Select and resolved
+	// in Run. When nil, screens fall back to the embedded catalog via
+	// mock.Catalog(). In live mode this is populated from filesystem
+	// discovery (internal/platforms).
+	Fetchers []mock.Fetcher
 }
 
 func NewWithOptions(r runner.Runner, opts Options) Model {
@@ -77,6 +85,7 @@ func NewWithOptions(r runner.Runner, opts Options) Model {
 		evidenceDir:     opts.EvidenceDir,
 		paramifyFactory: opts.ParamifyFactory,
 		secrets:         opts.Secrets,
+		fetchers:        opts.Fetchers,
 		sec:             screens.NewSecrets(keys, opts.Secrets),
 		secretBack:      ScreenWelcome,
 	}
@@ -136,7 +145,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if configurable, ok := m.runner.(runner.ProfileConfigurer); ok {
 			configurable.ConfigureProfile(msg.Profile.Name, msg.Profile.Region)
 		}
-		m.sel = screens.NewSelect(m.keys, m.profile).Resize(m.width, m.height)
+		m.sel = screens.NewSelectWithOptions(m.keys, m.profile, screens.SelectOptions{
+			Fetchers: m.fetchers,
+		}).Resize(m.width, m.height)
 		m.screen = ScreenSelect
 		return m, m.sel.Init()
 
@@ -145,7 +156,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// does not decide what each fetcher needs. Missing keys surface
 		// as fetcher failures (see runner.Real AWS preflight; everything
 		// else fails inside the script).
-		m.run = screens.NewRun(m.keys, m.profile, msg.IDs, m.runner).Resize(m.width, m.height)
+		m.run = screens.NewRunWithOptions(m.keys, m.profile, msg.IDs, m.runner, screens.RunOptions{
+			Fetchers: m.fetchers,
+		}).Resize(m.width, m.height)
 		m.screen = ScreenRun
 		return m, m.run.Init()
 

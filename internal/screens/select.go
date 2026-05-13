@@ -56,8 +56,24 @@ func (m SelectModel) WithStatus(msg string, isError bool) SelectModel {
 	return m
 }
 
+// SelectOptions tweaks Select at construction.
+//
+// Fetchers, when non-nil, overrides the default mock.Catalog() lookup.
+// Pass the filesystem-discovered list here to make Select reflect what's on
+// disk rather than the embedded catalog.
+type SelectOptions struct {
+	Fetchers []mock.Fetcher
+}
+
 func NewSelect(keys app.KeyMap, profile string) SelectModel {
-	cat := mock.Catalog()
+	return NewSelectWithOptions(keys, profile, SelectOptions{})
+}
+
+func NewSelectWithOptions(keys app.KeyMap, profile string, opts SelectOptions) SelectModel {
+	cat := opts.Fetchers
+	if cat == nil {
+		cat = mock.Catalog()
+	}
 	sources := mock.Sources(cat)
 
 	ti := textinput.New()

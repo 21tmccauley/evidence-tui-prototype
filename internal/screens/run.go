@@ -73,8 +73,22 @@ type RunModel struct {
 	width, height int
 }
 
+// RunOptions tweaks Run at construction. Fetchers, when non-nil, overrides
+// the default mock.Catalog() lookup — pass the same list used for Select so
+// the Run cards display the correct names and metadata.
+type RunOptions struct {
+	Fetchers []mock.Fetcher
+}
+
 func NewRun(keys app.KeyMap, profile string, ids []runner.FetcherID, r runner.Runner) RunModel {
-	cat := mock.Catalog()
+	return NewRunWithOptions(keys, profile, ids, r, RunOptions{})
+}
+
+func NewRunWithOptions(keys app.KeyMap, profile string, ids []runner.FetcherID, r runner.Runner, opts RunOptions) RunModel {
+	cat := opts.Fetchers
+	if cat == nil {
+		cat = mock.Catalog()
+	}
 	catMap := map[runner.FetcherID]mock.Fetcher{}
 	for _, f := range cat {
 		catMap[f.ID] = f

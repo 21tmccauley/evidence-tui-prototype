@@ -134,6 +134,25 @@ func durationFor(id string) time.Duration {
 	return defaultEstDuration
 }
 
+// FetchersFromScripts adapts a catalog.Script slice into UI-shaped fetchers
+// without touching the cached embedded catalog. Used when the fetcher list
+// is assembled from filesystem discovery rather than the embedded catalog.
+func FetchersFromScripts(scripts []catalog.Script) []Fetcher {
+	out := make([]Fetcher, 0, len(scripts))
+	for _, s := range scripts {
+		out = append(out, Fetcher{
+			ID:          runner.FetcherID(s.ID),
+			Source:      s.Source,
+			Name:        s.Name,
+			Description: s.Description,
+			Tags:        s.Tags,
+			EstDuration: durationFor(s.ID),
+			Behavior:    behaviorFor(s.ID),
+		})
+	}
+	return out
+}
+
 // Sources returns the unique source identifiers in catalog order.
 func Sources(cat []Fetcher) []string {
 	seen := map[string]bool{}

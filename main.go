@@ -13,6 +13,7 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/catalog"
 	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/output"
+	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 	"github.com/paramify/evidence-tui-prototype/internal/preflight"
 	"github.com/paramify/evidence-tui-prototype/internal/root"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
@@ -76,14 +77,18 @@ func main() {
 		welcomeOpts     screens.WelcomeOptions
 		evidenceDir     string
 		paramifyFactory screens.ParamifyFactory
+		fetchersForUI   []mock.Fetcher
 	)
 	if *demo {
 		r = mock.NewMockRunner(mock.Catalog())
 	} else {
 		var repoAbs string
-		r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv)
+		var unifiedScripts []catalog.Script
+		r, evidenceDir, repoAbs, unifiedScripts = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv, sessionLog)
 		welcomeOpts = realWelcomeOptions(*profile, *region, baseEnv)
+		fetchersForUI = mock.FetchersFromScripts(unifiedScripts)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
+		sessionLog.Logf("fetcher catalog: %d scripts (after filesystem discovery merge)", len(unifiedScripts))
 		paramifyFactory = func() (uploader.Uploader, error) {
 			env, err := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
 			if err != nil {
@@ -102,6 +107,7 @@ func main() {
 		EvidenceDir:     evidenceDir,
 		ParamifyFactory: paramifyFactory,
 		Secrets:         secretStore,
+		Fetchers:        fetchersForUI,
 	})
 
 	p := tea.NewProgram(rootModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -172,8 +178,9 @@ func firstNonEmpty(values ...string) string {
 }
 
 // buildRealRunner validates flags, builds the real runner, and returns
-// runner, evidence directory, and absolute fetcher repo root.
-func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag string, fetcherParallel int, runTS string, env []string) (runner.Runner, string, string) {
+// runner, evidence directory, absolute fetcher repo root, and the unified
+// script list (filesystem discovery merged with the catalog).
+func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag string, fetcherParallel int, runTS string, env []string, sessionLog *output.SessionLog) (runner.Runner, string, string, []catalog.Script) {
 	if repoRoot == "" {
 		die(2, "--fetcher-repo-root is required when --demo=false")
 	}
@@ -186,10 +193,18 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 		die(2, "--fetcher-repo-root %q is not a directory", repoAbs)
 	}
 
-	scripts, err := loadCatalogScripts(catalogPath)
+	catScripts, err := loadCatalogScripts(catalogPath)
 	if err != nil {
 		die(2, "catalog error: %v", err)
 	}
+
+	plats, err := platforms.Discover(repoAbs)
+	if err != nil {
+		sessionLog.Logf("warning: platform discovery failed: %v", err)
+	} else {
+		sessionLog.Logf("platform discovery: %d platforms found", len(plats))
+	}
+	scripts := platforms.Join(repoAbs, plats, catScripts)
 	byID := make(map[runner.FetcherID]catalog.Script, len(scripts))
 	for _, s := range scripts {
 		byID[runner.FetcherID(s.ID)] = s
@@ -210,7 +225,7 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 		}},
 		Environ:     env,
 		MaxParallel: fetcherParallel,
-	}), evidenceDir, repoAbs
+	}), evidenceDir, repoAbs, scripts
 }
 
 func buildSecretsStore(backend string, env []string) (secrets.Store, error) {
