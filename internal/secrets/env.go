@@ -27,9 +27,11 @@ func (e Env) ParamifyUploadAPIToken() (string, error) {
 }
 
 func (e Env) Get(key string) (string, bool, error) {
-	if err := ValidateKey(key); err != nil {
-		return "", false, err
-	}
+	// Reads are unrestricted: with .env as the canonical store and the
+	// keychain backend gone, the TUI no longer needs to gate which keys
+	// it can look up. Set/Delete still validate (they return ErrReadOnly
+	// here, but the Memory backend uses ValidateKey for keychain-style
+	// safety).
 	env := e.environ()
 	for _, entry := range env {
 		k, v, ok := strings.Cut(entry, "=")
@@ -50,15 +52,15 @@ func (e Env) Set(_, _ string) error { return ErrReadOnly }
 func (e Env) Delete(_ string) error { return ErrReadOnly }
 
 func (e Env) List() ([]string, error) {
+	// Return every key currently set in the env slice. Callers filter to
+	// what they care about; the store doesn't editorialize.
 	out := map[string]bool{}
-	for _, key := range requiredRuntimeKeys() {
-		_, found, err := e.Get(key)
-		if err != nil {
-			return nil, err
+	for _, entry := range e.environ() {
+		k, _, ok := strings.Cut(entry, "=")
+		if !ok || k == "" {
+			continue
 		}
-		if found {
-			out[key] = true
-		}
+		out[k] = true
 	}
 	return keysForSet(out), nil
 }
