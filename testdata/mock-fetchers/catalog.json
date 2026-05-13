@@ -1,0 +1,8 @@
+{
+  "evidence_fetchers_catalog": {
+    "version": "0.0.0",
+    "description": "Empty catalog for mock fetcher walkthrough; filesystem discovery is the source of truth.",
+    "last_updated": "2026-05-13",
+    "categories": {}
+  }
+}
