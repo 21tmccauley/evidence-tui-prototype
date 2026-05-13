@@ -278,14 +278,6 @@ func (r *RealRunner) execute(id FetcherID, runIdx int) {
 		return
 	}
 
-	profile, region := EffectiveProfileRegion(r.cfg, inst)
-	if (script.Source == "aws" || inst.Provider == "aws") && !r.preflightOK(profile, region) {
-		r.finish(id, runIdx, FinishedMsg{
-			ID: id, Status: StatusFailed,
-			ErrorReason: fmt.Sprintf("AWS authentication missing or invalid; run 'aws sso login --profile %s'", profile),
-		})
-		return
-	}
 	var stdoutF, stderrF *os.File
 	defer func() {
 		syncCloseLogFile(stdoutF)
@@ -409,11 +401,6 @@ func (r *RealRunner) classify(
 			return StatusFailed, fmt.Sprintf("exit %d", exit)
 		}
 		return StatusFailed, fmt.Sprintf("exit %d: %s", exit, tail)
-	}
-	if script.Source == "aws" || inst.Provider == "aws" {
-		if err := ValidateAWSEvidenceForInstance(runDir, script.Key, inst); err != nil {
-			return StatusFailed, err.Error()
-		}
 	}
 	return StatusOK, ""
 }
