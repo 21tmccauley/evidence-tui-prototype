@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -83,53 +82,6 @@ func requireBash(t *testing.T) {
 	}
 }
 
-// stubAuthChecker is a fake AuthChecker so tests don't need a real
-// `aws` CLI. The Err field controls success/failure.
-type stubAuthChecker struct {
-	calls int
-	err   error
-}
-
-func (s *stubAuthChecker) CheckAWSAuth(_ context.Context, _ string, _ string) error {
-	s.calls++
-	return s.err
-}
-
-func TestReal_PreflightCacheIsKeyedByProfileRegion(t *testing.T) {
-	auth := &stubAuthChecker{}
-	r := NewReal(Config{AuthChecker: auth})
-
-	if !r.preflightOK("prod", "us-east-1") {
-		t.Fatal("first preflight should pass")
-	}
-	if !r.preflightOK("prod", "us-east-1") {
-		t.Fatal("cached preflight should pass")
-	}
-	if auth.calls != 1 {
-		t.Fatalf("same profile/region should be cached, calls=%d", auth.calls)
-	}
-	if !r.preflightOK("prod", "us-west-2") {
-		t.Fatal("second region preflight should pass")
-	}
-	if auth.calls != 2 {
-		t.Fatalf("different region should not reuse cache, calls=%d", auth.calls)
-	}
-}
-
-func TestReal_ConfigureProfileUpdatesConfig(t *testing.T) {
-	r := NewReal(Config{Profile: "old", Region: "us-west-2"})
-	r.ConfigureProfile("prod", "us-east-1")
-	profile, region := EffectiveProfileRegion(r.cfg, Instance{})
-	if profile != "prod" || region != "us-east-1" {
-		t.Fatalf("profile/region: got %q/%q want prod/us-east-1", profile, region)
-	}
-	r.ConfigureProfile("prod", "—")
-	_, region = EffectiveProfileRegion(r.cfg, Instance{})
-	if region != "" {
-		t.Fatalf("dash region should clear runner region, got %q", region)
-	}
-}
-
 func startReal(t *testing.T, r *RealRunner, ids []FetcherID) {
 	t.Helper()
 	cmd := r.Start(ids)
@@ -164,7 +116,6 @@ func TestReal_OK(t *testing.T) {
 				Key:        "echo_ok",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -237,7 +188,6 @@ func TestReal_WritesEvidenceSetsCompatibilityAndAuditCopies(t *testing.T) {
 				},
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -283,7 +233,6 @@ func TestReal_NonZeroExit(t *testing.T) {
 				Key:        "echo_fail",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -322,7 +271,6 @@ func TestReal_ForwardsAllOutputLines_NoUICapInRunner(t *testing.T) {
 				Key:        "spam_600_lines",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -370,7 +318,6 @@ func TestReal_TimeoutEnforced(t *testing.T) {
 				Key:        "sleep_timeout",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -412,7 +359,6 @@ func TestReal_CancelHonorsSIGTERM(t *testing.T) {
 				Key:        "loop_term_exits",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -447,7 +393,6 @@ func TestReal_CancelEscalatesToSIGKILL(t *testing.T) {
 				Key:        "loop_term_ignored",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -488,7 +433,6 @@ func TestReal_RetryDropsStaleOutputAfterCancel(t *testing.T) {
 				Key:        "cancel_then_chatty",
 			},
 		},
-		AuthChecker: &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -522,7 +466,6 @@ func TestReal_UnknownIDFailsCleanly(t *testing.T) {
 		FetcherRepoRoot: repoRoot,
 		OutputRoot:      outRoot,
 		Scripts:         map[FetcherID]catalog.Script{},
-		AuthChecker:     &stubAuthChecker{},
 	}
 	r := NewReal(cfg)
 	sender := newCaptureSender(id)
@@ -562,7 +505,6 @@ func TestReal_ConcurrencyCapIsRespected(t *testing.T) {
 		FetcherRepoRoot: repoRoot,
 		OutputRoot:      outRoot,
 		Scripts:         scripts,
-		AuthChecker:     &stubAuthChecker{},
 		MaxParallel:     4,
 	}
 	r := NewReal(cfg)
@@ -604,7 +546,6 @@ func TestReal_DefaultMaxParallelIsOne(t *testing.T) {
 		FetcherRepoRoot: repoRoot,
 		OutputRoot:      outRoot,
 		Scripts:         scripts,
-		AuthChecker:     &stubAuthChecker{},
 		// MaxParallel omitted: zero should normalize to 1 in NewReal.
 	}
 	r := NewReal(cfg)
@@ -658,6 +599,16 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(b)
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 }
 
 func max(a, b int) int {

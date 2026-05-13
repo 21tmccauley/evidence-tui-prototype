@@ -14,7 +14,6 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/output"
 	"github.com/paramify/evidence-tui-prototype/internal/platforms"
-	"github.com/paramify/evidence-tui-prototype/internal/preflight"
 	"github.com/paramify/evidence-tui-prototype/internal/root"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
 	"github.com/paramify/evidence-tui-prototype/internal/screens"
@@ -22,17 +21,14 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/uploader"
 )
 
-const preflightCachePath = "pre-flight-cache.json"
-
 func main() {
 	demo := flag.Bool("demo", true, "use the deterministic mock runner")
 	catalogPath := flag.String("catalog", "", "override the embedded evidence_fetchers_catalog.json (development)")
-	profile := flag.String("profile", "", "AWS profile (real runner)")
-	region := flag.String("region", "", "AWS region (real runner)")
+	profile := flag.String("profile", "", "AWS profile passed as a positional arg to legacy .sh fetchers")
+	region := flag.String("region", "", "AWS region passed as a positional arg to legacy .sh fetchers")
 	repoRoot := flag.String("fetcher-repo-root", "", "path to the evidence-fetchers checkout (real runner)")
 	outputRoot := flag.String("output-root", "", "explicit per-run evidence directory (overrides XDG default)")
 	fetcherParallel := flag.Int("fetcher-parallel", 1, "max fetcher subprocesses at once (default 1 avoids tmp-path races until scripts are isolated)")
-	secretsBackend := flag.String("secrets-backend", "env", "secrets backend: env|merged|keychain (env is .env-backed and read-only)")
 	envFile := flag.String("env-file", "", "dotenv file to load (live mode defaults to <fetcher-repo-root>/.env when present)")
 	flag.Parse()
 
@@ -66,10 +62,10 @@ func main() {
 		sessionLog.Logf("env file expected at %s but not found; continuing with process environment only", envFilePath)
 	}
 
-	secretStore, err := buildSecretsStore(*secretsBackend, baseEnv)
-	if err != nil {
-		die(2, "secrets backend error: %v", err)
-	}
+	// .env is the canonical secret store: values come from the dotenv file
+	// merged into the process environment, and the TUI surfaces what's set
+	// vs. missing without owning a separate credential store.
+	secretStore := secrets.Env{Environ: baseEnv}
 	runtimeEnv, err := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
 	if err != nil {
 		die(2, "secrets setup error: %v", err)
@@ -132,15 +128,6 @@ func main() {
 	sessionLog.Logf("paramify-fetcher exit clean")
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
 // buildRealRunner validates flags, builds the real runner, and returns
 // runner, evidence directory, absolute fetcher repo root, the unified
 // script list (filesystem discovery merged with the catalog), and the
@@ -184,32 +171,9 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 		OutputRoot:             evidenceDir,
 		EvidenceSetsCompatPath: filepath.Join(repoAbs, "evidence_sets.json"),
 		Scripts:                byID,
-		AuthChecker: preflight.CachedAuthChecker{Service: preflight.Service{
-			Cache:   preflightCachePath,
-			Checker: runner.CLIAuthChecker{},
-		}},
-		Environ:     env,
-		MaxParallel: fetcherParallel,
+		Environ:                env,
+		MaxParallel:            fetcherParallel,
 	}), evidenceDir, repoAbs, scripts, plats
-}
-
-func buildSecretsStore(backend string, env []string) (secrets.Store, error) {
-	envStore := secrets.Env{Environ: env}
-	keychainStore := secrets.Keychain{Service: secrets.DefaultKeychainService}
-	switch backend {
-	case "env":
-		return envStore, nil
-	case "keychain":
-		return keychainStore, nil
-	case "merged":
-		return secrets.Merged{
-			Primary:  keychainStore,
-			Fallback: envStore,
-			Writer:   keychainStore,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported secrets backend %q", backend)
-	}
 }
 
 // buildBaseEnv returns (mergedEnv, expectedPath, loaded, err).

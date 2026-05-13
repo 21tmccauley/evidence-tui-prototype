@@ -33,11 +33,8 @@ type RealRunner struct {
 	order        []FetcherID
 	queue        []FetcherID
 	running      int
-	awsAuthOK    map[string]bool // memoized by profile+region once per Start() call
 	pending      []FinishedMsg
 	summaryWrote bool
-
-	awsAuthMu sync.Mutex
 }
 
 type realState struct {
@@ -52,16 +49,12 @@ type realState struct {
 
 // NewReal builds a RealRunner; call Bind(program) once before Run for async messages.
 func NewReal(cfg Config) *RealRunner {
-	if cfg.AuthChecker == nil {
-		cfg.AuthChecker = CLIAuthChecker{}
-	}
 	if cfg.MaxParallel < 1 {
 		cfg.MaxParallel = 1
 	}
 	return &RealRunner{
-		cfg:       cfg,
-		states:    map[FetcherID]*realState{},
-		awsAuthOK: map[string]bool{},
+		cfg:    cfg,
+		states: map[FetcherID]*realState{},
 	}
 }
 
@@ -69,16 +62,6 @@ func (r *RealRunner) Bind(s Sender) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sender = s
-}
-
-func (r *RealRunner) ConfigureProfile(profile, region string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.cfg.Profile = profile
-	if region == "—" {
-		region = ""
-	}
-	r.cfg.Region = region
 }
 
 func (r *RealRunner) Init() tea.Cmd { return nil }
@@ -102,7 +85,6 @@ func (r *RealRunner) Start(ids []FetcherID) tea.Cmd {
 	r.order = nil
 	r.queue = nil
 	r.running = 0
-	r.awsAuthOK = map[string]bool{}
 	r.pending = nil
 	r.summaryWrote = false
 
@@ -486,37 +468,6 @@ func (r *RealRunner) send(msg tea.Msg) {
 		return
 	}
 	sender.Send(msg)
-}
-
-// preflightOK memoizes CheckAWSAuth per profile+region; awsAuthMu serializes the first check.
-func (r *RealRunner) preflightOK(profile, region string) bool {
-	key := profile + "\x00" + region
-	r.mu.Lock()
-	if ok, found := r.awsAuthOK[key]; found {
-		r.mu.Unlock()
-		return ok
-	}
-	r.mu.Unlock()
-
-	r.awsAuthMu.Lock()
-	defer r.awsAuthMu.Unlock()
-
-	r.mu.Lock()
-	if ok, found := r.awsAuthOK[key]; found {
-		r.mu.Unlock()
-		return ok
-	}
-	r.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(context.Background(), awsAuthTimeout)
-	defer cancel()
-	err := r.cfg.AuthChecker.CheckAWSAuth(ctx, profile, region)
-	ok := err == nil
-
-	r.mu.Lock()
-	r.awsAuthOK[key] = ok
-	r.mu.Unlock()
-	return ok
 }
 
 func syncCloseLogFile(f *os.File) {

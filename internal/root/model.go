@@ -32,8 +32,6 @@ type Model struct {
 	showHelp    bool
 	width       int
 	height      int
-	profile     string
-	region      string
 	runner          runner.Runner
 	welcomeOpts     screens.WelcomeOptions
 	evidenceDir     string
@@ -159,8 +157,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = ScreenSecrets
 		return m, m.sec.Init()
 
-	case screens.SelectedProfileMsg:
-		m.sel = screens.NewSelectWithOptions(m.keys, m.profile, screens.SelectOptions{
+	case screens.ContinueMsg:
+		m.sel = screens.NewSelectWithOptions(m.keys, screens.SelectOptions{
 			Fetchers: m.fetchers,
 		}).Resize(m.width, m.height)
 		m.screen = ScreenSelect
@@ -171,14 +169,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// does not decide what each fetcher needs. Missing keys surface
 		// as fetcher failures (see runner.Real AWS preflight; everything
 		// else fails inside the script).
-		m.run = screens.NewRunWithOptions(m.keys, m.profile, msg.IDs, m.runner, screens.RunOptions{
+		m.run = screens.NewRunWithOptions(m.keys, msg.IDs, m.runner, screens.RunOptions{
 			Fetchers: m.fetchers,
 		}).Resize(m.width, m.height)
 		m.screen = ScreenRun
 		return m, m.run.Init()
 
 	case screens.RunCompleteMsg:
-		rev := screens.NewReview(m.keys, m.profile, msg.Results).
+		rev := screens.NewReview(m.keys, msg.Results).
 			WithEvidenceDir(m.evidenceDir)
 		if m.paramifyFactory != nil {
 			rev = rev.WithParamifyUpload(m.secrets, m.paramifyFactory)

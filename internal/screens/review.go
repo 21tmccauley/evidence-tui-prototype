@@ -56,7 +56,6 @@ func runParamifyUpload(c uploader.Uploader, dir string) tea.Cmd {
 
 type ReviewModel struct {
 	keys        app.KeyMap
-	profile     string
 	results     []RunResult
 	evidenceDir string
 
@@ -75,12 +74,11 @@ type ReviewModel struct {
 	width, height int
 }
 
-func NewReview(keys app.KeyMap, profile string, results []RunResult) ReviewModel {
+func NewReview(keys app.KeyMap, results []RunResult) ReviewModel {
 	pr := progress.New(progress.WithGradient("#9ECE6A", "#7DCFFF"))
 	pr.ShowPercentage = true
 	return ReviewModel{
 		keys:     keys,
-		profile:  profile,
 		results:  results,
 		progress: pr,
 	}

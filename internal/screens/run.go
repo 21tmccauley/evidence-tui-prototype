@@ -48,8 +48,7 @@ type runState struct {
 }
 
 type RunModel struct {
-	keys    app.KeyMap
-	profile string
+	keys app.KeyMap
 
 	targets     []runner.FetcherID
 	catalog     map[runner.FetcherID]mock.Fetcher
@@ -80,11 +79,11 @@ type RunOptions struct {
 	Fetchers []mock.Fetcher
 }
 
-func NewRun(keys app.KeyMap, profile string, ids []runner.FetcherID, r runner.Runner) RunModel {
-	return NewRunWithOptions(keys, profile, ids, r, RunOptions{})
+func NewRun(keys app.KeyMap, ids []runner.FetcherID, r runner.Runner) RunModel {
+	return NewRunWithOptions(keys, ids, r, RunOptions{})
 }
 
-func NewRunWithOptions(keys app.KeyMap, profile string, ids []runner.FetcherID, r runner.Runner, opts RunOptions) RunModel {
+func NewRunWithOptions(keys app.KeyMap, ids []runner.FetcherID, r runner.Runner, opts RunOptions) RunModel {
 	cat := opts.Fetchers
 	if cat == nil {
 		cat = mock.Catalog()
@@ -115,7 +114,6 @@ func NewRunWithOptions(keys app.KeyMap, profile string, ids []runner.FetcherID, 
 
 	return RunModel{
 		keys:        keys,
-		profile:     profile,
 		targets:     ids,
 		catalog:     catMap,
 		states:      states,

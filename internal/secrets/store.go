@@ -9,12 +9,6 @@ import (
 const (
 	KeyParamifyUploadAPIToken = "PARAMIFY_UPLOAD_API_TOKEN"
 	KeyParamifyAPIBaseURL     = "PARAMIFY_API_BASE_URL"
-	KeyKnowBe4APIKey          = "KNOWBE4_API_KEY"
-	KeyOktaAPIToken           = "OKTA_API_TOKEN"
-	KeyOktaOrgURL             = "OKTA_ORG_URL"
-	KeyRipplingAPIToken       = "RIPPLING_API_TOKEN"
-	KeySentinelOneAPIURL      = "SENTINELONE_API_URL"
-	KeySentinelOneAPIToken    = "SENTINELONE_API_TOKEN"
 )
 
 // ErrNotConfigured is returned when the operator has not supplied an upload

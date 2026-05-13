@@ -22,7 +22,7 @@ func TestRunScreen_CapsOutputTailTo400Lines(t *testing.T) {
 	// runner is fine; we never call Init/Start here.
 	var r runner.Runner = &noopRunner{}
 
-	m := NewRun(app.DefaultKeys(), "", []runner.FetcherID{id}, r)
+	m := NewRun(app.DefaultKeys(), []runner.FetcherID{id}, r)
 
 	// Feed 500 output lines.
 	for i := 1; i <= 500; i++ {

@@ -32,8 +32,6 @@ type SelectModel struct {
 	catalog []mock.Fetcher
 	sources []string
 
-	profile string
-
 	focused    pane
 	sourceIdx  int
 	fetcherIdx int
@@ -65,11 +63,11 @@ type SelectOptions struct {
 	Fetchers []mock.Fetcher
 }
 
-func NewSelect(keys app.KeyMap, profile string) SelectModel {
-	return NewSelectWithOptions(keys, profile, SelectOptions{})
+func NewSelect(keys app.KeyMap) SelectModel {
+	return NewSelectWithOptions(keys, SelectOptions{})
 }
 
-func NewSelectWithOptions(keys app.KeyMap, profile string, opts SelectOptions) SelectModel {
+func NewSelectWithOptions(keys app.KeyMap, opts SelectOptions) SelectModel {
 	cat := opts.Fetchers
 	if cat == nil {
 		cat = mock.Catalog()
@@ -85,7 +83,6 @@ func NewSelectWithOptions(keys app.KeyMap, profile string, opts SelectOptions) S
 		keys:     keys,
 		catalog:  cat,
 		sources:  sources,
-		profile:  profile,
 		focused:  paneSources,
 		selected: map[mock.FetcherID]bool{},
 		filter:   ti,

@@ -23,73 +23,19 @@ type SourceSecrets struct {
 // HasKeys reports whether the source has at least one editable key.
 func (s SourceSecrets) HasKeys() bool { return len(s.Keys) > 0 }
 
-// sourceSecretsTable is the canonical mapping from a catalog source (plus
-// the synthetic "paramify" pseudo-source) to the secrets the TUI knows
-// about. New keys must be added here so they flow into RuntimeKeys() and
-// ValidateKey() automatically.
+// sourceSecretsTable now only declares the TUI's own integrations — currently
+// the Paramify upload pseudo-source. Per-platform fetcher secrets are
+// discovered from the filesystem (each fetcher folder's .env.example or
+// platform.json) and surfaced in the Secrets screen via the platforms
+// package, not via this table.
 var sourceSecretsTable = []SourceSecrets{
 	{
 		Source: SourceParamify,
 		Label:  "Paramify",
 		Keys: []ServiceSecret{
-			{ServiceID: SourceParamify, ServiceName: "Paramify", Key: KeyParamifyUploadAPIToken, Optional: false, Description: "required to upload evidence sets"},
-			{ServiceID: SourceParamify, ServiceName: "Paramify", Key: KeyParamifyAPIBaseURL, Optional: true, Description: "optional API URL override"},
+			{ServiceID: SourceParamify, ServiceName: "Paramify", Key: KeyParamifyUploadAPIToken, Optional: false},
+			{ServiceID: SourceParamify, ServiceName: "Paramify", Key: KeyParamifyAPIBaseURL, Optional: true},
 		},
-	},
-	{
-		Source: "aws",
-		Label:  "AWS",
-		Note:   "managed via ~/.aws / aws CLI; no env key configured here",
-	},
-	{
-		Source: "k8s",
-		Label:  "Kubernetes",
-		Note:   "managed via kubeconfig / kubectl; no env key configured here",
-	},
-	{
-		Source: "okta",
-		Label:  "Okta",
-		Keys: []ServiceSecret{
-			{ServiceID: "okta", ServiceName: "Okta", Key: KeyOktaAPIToken, Optional: false, Description: "required for Okta API calls"},
-			{ServiceID: "okta", ServiceName: "Okta", Key: KeyOktaOrgURL, Optional: false, Description: "Okta org URL (https://your-org.okta.com)"},
-		},
-	},
-	{
-		Source: "knowbe4",
-		Label:  "KnowBe4",
-		Keys: []ServiceSecret{
-			{ServiceID: "knowbe4", ServiceName: "KnowBe4", Key: KeyKnowBe4APIKey, Optional: false, Description: "required for KnowBe4 scans"},
-		},
-	},
-	{
-		Source: "rippling",
-		Label:  "Rippling",
-		Keys: []ServiceSecret{
-			{ServiceID: "rippling", ServiceName: "Rippling", Key: KeyRipplingAPIToken, Optional: false, Description: "required for Rippling API calls"},
-		},
-	},
-	{
-		Source: "sentinelone",
-		Label:  "SentinelOne",
-		Keys: []ServiceSecret{
-			{ServiceID: "sentinelone", ServiceName: "SentinelOne", Key: KeySentinelOneAPIURL, Optional: false, Description: "SentinelOne API URL"},
-			{ServiceID: "sentinelone", ServiceName: "SentinelOne", Key: KeySentinelOneAPIToken, Optional: false, Description: "SentinelOne API token"},
-		},
-	},
-	{
-		Source: "gitlab",
-		Label:  "GitLab",
-		Note:   "uses multi-instance env: GITLAB_PROJECT_<N>_URL and GITLAB_PROJECT_<N>_API_ACCESS_TOKEN; set in your shell",
-	},
-	{
-		Source: "checkov",
-		Label:  "Checkov",
-		Note:   "no creds for local scans; reuses GitLab tokens for repo scans",
-	},
-	{
-		Source: "ssllabs",
-		Label:  "SSL Labs",
-		Note:   "public Qualys SSL Labs API; no credentials needed",
 	},
 }
 

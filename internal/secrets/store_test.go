@@ -7,8 +7,8 @@ import (
 
 func TestBuildEnvironInjectsSecrets(t *testing.T) {
 	mem := NewMemory()
-	if err := mem.Set(KeyKnowBe4APIKey, "kb4-test"); err != nil {
-		t.Fatalf("set knowbe4: %v", err)
+	if err := mem.Set(KeyParamifyAPIBaseURL, "https://custom.example/api"); err != nil {
+		t.Fatalf("set base url: %v", err)
 	}
 	if err := mem.Set(KeyParamifyUploadAPIToken, "paramify-token"); err != nil {
 		t.Fatalf("set paramify token: %v", err)
@@ -16,7 +16,7 @@ func TestBuildEnvironInjectsSecrets(t *testing.T) {
 
 	base := []string{
 		"PATH=/usr/bin",
-		KeyKnowBe4APIKey + "=old",
+		KeyParamifyUploadAPIToken + "=old",
 		"HOME=/tmp/test",
 	}
 	env, err := BuildEnviron(base, mem, RuntimeKeys())
@@ -24,14 +24,14 @@ func TestBuildEnvironInjectsSecrets(t *testing.T) {
 		t.Fatalf("BuildEnviron error: %v", err)
 	}
 
-	if !containsEnv(env, KeyKnowBe4APIKey, "kb4-test") {
-		t.Fatalf("expected knowbe4 key in env, got %v", env)
+	if !containsEnv(env, KeyParamifyAPIBaseURL, "https://custom.example/api") {
+		t.Fatalf("expected base url in env, got %v", env)
 	}
 	if !containsEnv(env, KeyParamifyUploadAPIToken, "paramify-token") {
 		t.Fatalf("expected paramify token in env, got %v", env)
 	}
-	if containsEnv(env, KeyKnowBe4APIKey, "old") {
-		t.Fatalf("old knowbe4 value should be replaced, got %v", env)
+	if containsEnv(env, KeyParamifyUploadAPIToken, "old") {
+		t.Fatalf("old token value should be replaced, got %v", env)
 	}
 }
 
@@ -90,7 +90,7 @@ func TestBuildEnvironKeychainOverridesEnvFileFallback(t *testing.T) {
 func TestMergedReadPrimaryFallbackWriteTarget(t *testing.T) {
 	primary := NewMemory()
 	fallback := NewMemory()
-	if err := fallback.Set(KeyKnowBe4APIKey, "from-fallback"); err != nil {
+	if err := fallback.Set(KeyParamifyUploadAPIToken, "from-fallback"); err != nil {
 		t.Fatalf("set fallback value: %v", err)
 	}
 
@@ -100,15 +100,15 @@ func TestMergedReadPrimaryFallbackWriteTarget(t *testing.T) {
 		Writer:   primary,
 	}
 
-	if got, found, err := store.Get(KeyKnowBe4APIKey); err != nil || !found || got != "from-fallback" {
+	if got, found, err := store.Get(KeyParamifyUploadAPIToken); err != nil || !found || got != "from-fallback" {
 		t.Fatalf("expected fallback read, got found=%t value=%q err=%v", found, got, err)
 	}
 
-	if err := store.Set(KeyKnowBe4APIKey, "from-primary"); err != nil {
+	if err := store.Set(KeyParamifyUploadAPIToken, "from-primary"); err != nil {
 		t.Fatalf("set merged value: %v", err)
 	}
 
-	if got, found, err := store.Get(KeyKnowBe4APIKey); err != nil || !found || got != "from-primary" {
+	if got, found, err := store.Get(KeyParamifyUploadAPIToken); err != nil || !found || got != "from-primary" {
 		t.Fatalf("expected primary override, got found=%t value=%q err=%v", found, got, err)
 	}
 }
@@ -135,23 +135,24 @@ func TestWritableReportsBackendCapability(t *testing.T) {
 
 func TestLocateReportsProvenance(t *testing.T) {
 	primary := NewMemory()
-	fallback := Env{Environ: []string{KeyKnowBe4APIKey + "=from-env"}}
+	fallback := Env{Environ: []string{KeyParamifyUploadAPIToken + "=from-env"}}
 	store := Merged{Primary: primary, Fallback: fallback, Writer: primary}
 
-	src, found, err := store.Locate(KeyKnowBe4APIKey)
+	src, found, err := store.Locate(KeyParamifyUploadAPIToken)
 	if err != nil || !found || src != "env" {
 		t.Fatalf("expected fallback provenance 'env', got src=%q found=%t err=%v", src, found, err)
 	}
 
-	if err := primary.Set(KeyKnowBe4APIKey, "from-mem"); err != nil {
+	if err := primary.Set(KeyParamifyUploadAPIToken, "from-mem"); err != nil {
 		t.Fatalf("set primary: %v", err)
 	}
-	src, found, err = store.Locate(KeyKnowBe4APIKey)
+	src, found, err = store.Locate(KeyParamifyUploadAPIToken)
 	if err != nil || !found || src != "memory" {
 		t.Fatalf("expected primary provenance 'memory' after override, got src=%q found=%t err=%v", src, found, err)
 	}
 
-	src, found, err = store.Locate(KeyParamifyUploadAPIToken)
+	// A key set in neither primary nor fallback returns found=false.
+	src, found, err = store.Locate(KeyParamifyAPIBaseURL)
 	if err != nil || found || src != "" {
 		t.Fatalf("expected unset key to return found=false, got src=%q found=%t err=%v", src, found, err)
 	}

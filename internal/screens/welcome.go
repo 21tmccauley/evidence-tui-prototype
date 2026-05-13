@@ -14,15 +14,6 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 )
 
-// Profile is a vestigial type retained until chunk 5 deletes the
-// SelectedProfileMsg / m.profile plumbing entirely. It no longer drives any
-// AWS-specific behavior — fields are empty in the fetcher-agnostic flow.
-type Profile struct {
-	Name   string
-	Region string
-	Note   string
-}
-
 // WelcomeModel is the launchpad shown on startup. It summarizes what was
 // discovered (platforms, fetchers, .env path) and offers a single action:
 // press enter to select fetchers. Secrets is reachable via `s`; quit is
@@ -74,10 +65,8 @@ func NewWelcomeWithOptions(keys app.KeyMap, opts WelcomeOptions) WelcomeModel {
 	}
 }
 
-// SelectedProfileMsg signals the Welcome → Select transition. The embedded
-// Profile is left empty in the fetcher-agnostic flow; chunk 5 renames this
-// to a generic continue message and removes the Profile field.
-type SelectedProfileMsg struct{ Profile Profile }
+// ContinueMsg signals the Welcome → Select transition.
+type ContinueMsg struct{}
 type OpenSecretsMsg struct{}
 
 type welcomeLogoSheenTickMsg struct{}
@@ -121,7 +110,7 @@ func (m WelcomeModel) Update(msg tea.Msg) (WelcomeModel, tea.Cmd) {
 	case tea.KeyMsg:
 		switch {
 		case key.Matches(msg, m.keys.Enter):
-			return m, func() tea.Msg { return SelectedProfileMsg{} }
+			return m, func() tea.Msg { return ContinueMsg{} }
 		case msg.String() == "s":
 			return m, func() tea.Msg { return OpenSecretsMsg{} }
 		}

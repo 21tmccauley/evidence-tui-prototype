@@ -11,9 +11,3 @@ type Runner interface {
 	Retry(id FetcherID) tea.Cmd
 	Bind(s Sender)
 }
-
-// ProfileConfigurer is implemented by runners whose credentials are selected
-// inside the TUI after construction.
-type ProfileConfigurer interface {
-	ConfigureProfile(profile, region string)
-}

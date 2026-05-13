@@ -10,15 +10,15 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 )
 
-func TestWelcomeEnterSendsSelectedProfileMsg(t *testing.T) {
+func TestWelcomeEnterSendsContinueMsg(t *testing.T) {
 	m := NewWelcome(app.DefaultKeys())
 
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatal("enter should produce a command")
 	}
-	if _, ok := cmd().(SelectedProfileMsg); !ok {
-		t.Fatalf("expected SelectedProfileMsg from enter, got %T", cmd())
+	if _, ok := cmd().(ContinueMsg); !ok {
+		t.Fatalf("expected ContinueMsg from enter, got %T", cmd())
 	}
 }
 

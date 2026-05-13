@@ -7,13 +7,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
-	"github.com/paramify/evidence-tui-prototype/internal/mock"
 	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
 func TestSecretsScreen_ReadOnlyBackendDisablesEdit(t *testing.T) {
-	store := secrets.Env{Environ: []string{secrets.KeyKnowBe4APIKey + "=from-env"}}
+	store := secrets.Env{Environ: []string{secrets.KeyParamifyUploadAPIToken + "=from-env"}}
 	m := NewSecrets(app.DefaultKeys(), store)
 	m = m.Resize(140, 40)
 
@@ -44,7 +43,7 @@ func TestSecretsScreen_ReadOnlyBackendDisablesEdit(t *testing.T) {
 // Provenance ("set (memory)") still has to render.
 func TestSecretsScreen_FocusedModeShowsProvenance(t *testing.T) {
 	mem := secrets.NewMemory()
-	if err := mem.Set(secrets.KeyKnowBe4APIKey, "abc"); err != nil {
+	if err := mem.Set(secrets.KeyParamifyUploadAPIToken, "abc"); err != nil {
 		t.Fatalf("seed memory: %v", err)
 	}
 	store := secrets.Merged{
@@ -53,7 +52,7 @@ func TestSecretsScreen_FocusedModeShowsProvenance(t *testing.T) {
 		Writer:   mem,
 	}
 	m := NewSecretsWithOptions(app.DefaultKeys(), store, SecretsOptions{
-		FocusKeys: []string{secrets.KeyKnowBe4APIKey},
+		FocusKeys: []string{secrets.KeyParamifyUploadAPIToken},
 	})
 	m = m.Resize(140, 40)
 
@@ -121,10 +120,10 @@ func TestSecretsScreen_PlatformDrivenSourcesAndEnvHint(t *testing.T) {
 	}
 }
 
-// The default (non-focused) Secrets screen lists Paramify pinned first and
-// every catalog source after it. Sources without env-var creds (aws, k8s,
-// ssllabs, …) render an info row.
-func TestSecretsScreen_ListsParamifyPlusCatalogSources(t *testing.T) {
+// When no Platforms are supplied (demo mode), the Secrets screen lists only
+// the Paramify pseudo-source. The legacy hardcoded catalog source table is
+// gone — fetcher-platform secrets surface only via filesystem discovery.
+func TestSecretsScreen_NoPlatformsShowsParamifyOnly(t *testing.T) {
 	mem := secrets.NewMemory()
 	m := NewSecrets(app.DefaultKeys(), mem)
 	m = m.Resize(140, 40)
@@ -138,13 +137,9 @@ func TestSecretsScreen_ListsParamifyPlusCatalogSources(t *testing.T) {
 	if !strings.Contains(v, "Paramify") {
 		t.Fatalf("expected Paramify pinned source, got:\n%s", v)
 	}
-	for _, src := range mock.Sources(mock.Catalog()) {
-		want := secrets.SecretsForSource(src).Label
-		if !strings.Contains(v, want) {
-			t.Fatalf("expected source %q (label %q) in left pane, got:\n%s", src, want, v)
+	for _, banned := range []string{"KnowBe4", "Okta", "Rippling", "SentinelOne", "GitLab", "Checkov", "SSL Labs"} {
+		if strings.Contains(v, banned) {
+			t.Fatalf("legacy catalog source %q must not appear in demo mode, got:\n%s", banned, v)
 		}
-	}
-	if !strings.Contains(v, "(info)") {
-		t.Fatalf("expected at least one info-only source (e.g. aws) marked '(info)', got:\n%s", v)
 	}
 }

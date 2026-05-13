@@ -21,7 +21,7 @@ func TestSmokeWalk(t *testing.T) {
 		t.Fatalf("welcome view unexpected: %q", first(v, 80))
 	}
 
-	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
+	m, _ = m.Update(screens.ContinueMsg{})
 	if v := m.View(); v == "" || !strings.Contains(v, "fetchers") {
 		t.Fatalf("select view unexpected: %q", first(v, 120))
 	}
@@ -65,7 +65,7 @@ func TestRoot_PassesEvidenceDirToReviewScreen(t *testing.T) {
 	var m tea.Model = NewWithOptions(r, Options{EvidenceDir: want})
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
+	m, _ = m.Update(screens.ContinueMsg{})
 	m, _ = m.Update(screens.SelectionConfirmedMsg{IDs: []mock.FetcherID{"EVD-KMS-ROT"}})
 	m, _ = m.Update(screens.RunCompleteMsg{Results: []screens.RunResult{
 		{ID: "EVD-KMS-ROT", Name: "KMS Key Rotation", Source: "aws", Status: mock.StatusOK},
@@ -84,7 +84,7 @@ func TestRoot_UploadWithoutTokenShowsHint(t *testing.T) {
 	r := mock.NewMockRunner(mock.Catalog())
 	var m tea.Model = NewWithOptions(r, Options{EvidenceDir: "/tmp/evidence-no-token"})
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
+	m, _ = m.Update(screens.ContinueMsg{})
 	m, _ = m.Update(screens.SelectionConfirmedMsg{IDs: []mock.FetcherID{"EVD-KMS-ROT"}})
 	m, _ = m.Update(screens.RunCompleteMsg{Results: []screens.RunResult{
 		{ID: "EVD-KMS-ROT", Name: "KMS Key Rotation", Source: "aws", Status: mock.StatusOK},
@@ -113,7 +113,7 @@ func TestRoot_OmitsEvidenceDirWhenEmpty(t *testing.T) {
 	var m tea.Model = New(r)
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
+	m, _ = m.Update(screens.ContinueMsg{})
 	m, _ = m.Update(screens.SelectionConfirmedMsg{IDs: []mock.FetcherID{"EVD-KMS-ROT"}})
 	m, _ = m.Update(screens.RunCompleteMsg{Results: []screens.RunResult{
 		{ID: "EVD-KMS-ROT", Name: "KMS Key Rotation", Source: "aws", Status: mock.StatusOK},
@@ -135,7 +135,7 @@ func TestRoot_SelectionWithoutSecretsGoesStraightToRun(t *testing.T) {
 	var m tea.Model = NewWithOptions(r, Options{Secrets: mem})
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	m, _ = m.Update(screens.SelectedProfileMsg{Profile: screens.Profile{Name: "demo", Region: "us-east-1"}})
+	m, _ = m.Update(screens.ContinueMsg{})
 	m, _ = m.Update(screens.SelectionConfirmedMsg{IDs: []mock.FetcherID{"EVD-HIGH-RISK-TRAINING"}})
 
 	v := m.View()
