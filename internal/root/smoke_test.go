@@ -17,7 +17,7 @@ func TestSmokeWalk(t *testing.T) {
 	var m tea.Model = New(r)
 
 	m, _ = m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	if v := m.View(); v == "" || !strings.Contains(v, "select a profile") {
+	if v := m.View(); v == "" || !strings.Contains(v, "welcome") {
 		t.Fatalf("welcome view unexpected: %q", first(v, 80))
 	}
 

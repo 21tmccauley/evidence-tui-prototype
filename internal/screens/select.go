@@ -259,11 +259,9 @@ func (m SelectModel) View() string {
 	}
 
 	header := components.RenderHeader(components.HeaderProps{
-		Width:   width,
-		Crumb:   "select fetchers",
-		Profile: m.profile,
-		Region:  "us-east-1",
-		Now:     time.Now(),
+		Width: width,
+		Crumb: "select fetchers",
+		Now:   time.Now(),
 	})
 
 	rule := 1

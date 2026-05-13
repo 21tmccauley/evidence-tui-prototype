@@ -55,12 +55,15 @@ func main() {
 	sessionLog.Logf("paramify-fetcher start demo=%t catalog=%q profile=%q region=%q output-root=%q fetcher-parallel=%d",
 		*demo, *catalogPath, *profile, *region, *outputRoot, *fetcherParallel)
 
-	baseEnv, loadedEnvFile, err := buildBaseEnv(os.Environ(), *envFile, *repoRoot, !*demo)
+	baseEnv, envFilePath, envFileLoaded, err := buildBaseEnv(os.Environ(), *envFile, *repoRoot, !*demo)
 	if err != nil {
 		die(2, "env file error: %v", err)
 	}
-	if loadedEnvFile != "" {
-		sessionLog.Logf("env file loaded: %s", loadedEnvFile)
+	switch {
+	case envFileLoaded:
+		sessionLog.Logf("env file loaded: %s", envFilePath)
+	case envFilePath != "":
+		sessionLog.Logf("env file expected at %s but not found; continuing with process environment only", envFilePath)
 	}
 
 	secretStore, err := buildSecretsStore(*secretsBackend, baseEnv)
@@ -86,7 +89,11 @@ func main() {
 		var repoAbs string
 		var unifiedScripts []catalog.Script
 		r, evidenceDir, repoAbs, unifiedScripts, plats = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv, sessionLog)
-		welcomeOpts = realWelcomeOptions(*profile, *region, baseEnv)
+		welcomeOpts = screens.WelcomeOptions{
+			Platforms:     plats,
+			EnvFilePath:   envFilePath,
+			EnvFileLoaded: envFileLoaded,
+		}
 		fetchersForUI = mock.FetchersFromScripts(unifiedScripts)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
 		sessionLog.Logf("fetcher catalog: %d scripts (after filesystem discovery merge)", len(unifiedScripts))
@@ -110,7 +117,7 @@ func main() {
 		Secrets:         secretStore,
 		Fetchers:        fetchersForUI,
 		Platforms:       plats,
-		EnvFilePath:     loadedEnvFile,
+		EnvFilePath:     envFilePath,
 	})
 
 	p := tea.NewProgram(rootModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -123,52 +130,6 @@ func main() {
 		os.Exit(1)
 	}
 	sessionLog.Logf("paramify-fetcher exit clean")
-}
-
-func realWelcomeOptions(profile, region string, env []string) screens.WelcomeOptions {
-	return screens.WelcomeOptions{
-		Profiles:    loadWelcomeProfiles(profile, region, env),
-		Tools:       preflight.CheckTools([]string{"aws", "jq", "bash", "python3", "kubectl", "curl"}),
-		Credential:  &preflight.Service{Cache: preflightCachePath, Checker: runner.CLIAuthChecker{}},
-		InitialName: profile,
-	}
-}
-
-func loadWelcomeProfiles(profile, region string, env []string) []screens.Profile {
-	awsProfiles, err := preflight.LoadAWSProfiles("")
-	profiles := make([]screens.Profile, 0, len(awsProfiles)+1)
-	for _, p := range awsProfiles {
-		profiles = append(profiles, screens.Profile{
-			Name:   p.Name,
-			Region: firstNonEmpty(p.Region, region, envValue(env, "AWS_DEFAULT_REGION"), envValue(env, "AWS_REGION"), "—"),
-			Note:   p.Note,
-		})
-	}
-	if profile != "" && !hasProfile(profiles, profile) {
-		profiles = append([]screens.Profile{{
-			Name:   profile,
-			Region: firstNonEmpty(region, envValue(env, "AWS_DEFAULT_REGION"), envValue(env, "AWS_REGION"), "—"),
-			Note:   "from --profile",
-		}}, profiles...)
-	}
-	if len(profiles) == 0 || err != nil {
-		name := firstNonEmpty(profile, envValue(env, "AWS_PROFILE"), "default")
-		profiles = []screens.Profile{{
-			Name:   name,
-			Region: firstNonEmpty(region, envValue(env, "AWS_DEFAULT_REGION"), envValue(env, "AWS_REGION"), "—"),
-			Note:   "from environment/default",
-		}}
-	}
-	return profiles
-}
-
-func hasProfile(profiles []screens.Profile, name string) bool {
-	for _, p := range profiles {
-		if p.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 func firstNonEmpty(values ...string) string {
@@ -251,32 +212,54 @@ func buildSecretsStore(backend string, env []string) (secrets.Store, error) {
 	}
 }
 
-func buildBaseEnv(base []string, envFile, repoRoot string, live bool) ([]string, string, error) {
+// buildBaseEnv returns (mergedEnv, expectedPath, loaded, err).
+//
+// expectedPath is the absolute path the TUI looked at, even when the file
+// is absent — so the Welcome and Secrets screens can show the user where
+// the .env should live. loaded is true only when the file existed and its
+// values were merged into the returned env. An explicit --env-file that
+// fails to read is still an error; an auto-detected <repoRoot>/.env that
+// doesn't exist is not.
+func buildBaseEnv(base []string, envFile, repoRoot string, live bool) ([]string, string, bool, error) {
 	out := append([]string(nil), base...)
-	path := strings.TrimSpace(envFile)
-	if path == "" && live && strings.TrimSpace(repoRoot) != "" {
-		path = filepath.Join(repoRoot, ".env")
-		if info, err := os.Stat(path); err != nil {
-			if os.IsNotExist(err) {
-				return out, "", nil
-			}
-			return nil, "", err
-		} else if info.IsDir() {
-			return nil, "", fmt.Errorf("%q is a directory", path)
-		}
-	} else if path == "" {
-		return out, "", nil
+	explicit := strings.TrimSpace(envFile)
+
+	if explicit == "" && (!live || strings.TrimSpace(repoRoot) == "") {
+		// Demo mode without --env-file: nothing to look at.
+		return out, "", false, nil
 	}
 
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, "", err
+	var candidate string
+	if explicit != "" {
+		candidate = explicit
+	} else {
+		candidate = filepath.Join(repoRoot, ".env")
 	}
+	abs, err := filepath.Abs(candidate)
+	if err != nil {
+		return nil, "", false, err
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Auto-detected path missing is non-fatal — surface it in the UI
+			// so the user knows where to drop their .env. An explicit
+			// --env-file that doesn't exist is still surfaced as the expected
+			// path; the caller decides how to communicate it.
+			return out, abs, false, nil
+		}
+		return nil, "", false, err
+	}
+	if info.IsDir() {
+		return nil, "", false, fmt.Errorf("%q is a directory", abs)
+	}
+
 	merged, err := secrets.MergeEnvFile(out, abs)
 	if err != nil {
-		return nil, "", err
+		return nil, "", false, err
 	}
-	return merged, abs, nil
+	return merged, abs, true, nil
 }
 
 func firstEnvValue(env []string, key string) string {

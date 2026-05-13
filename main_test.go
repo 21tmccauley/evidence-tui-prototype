@@ -22,12 +22,15 @@ func TestBuildBaseEnvAutoLoadsFetcherRepoDotEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env, loaded, err := buildBaseEnv([]string{"PATH=/usr/bin"}, "", repo, true)
+	env, path, loaded, err := buildBaseEnv([]string{"PATH=/usr/bin"}, "", repo, true)
 	if err != nil {
 		t.Fatalf("buildBaseEnv error: %v", err)
 	}
-	if loaded != envPath {
-		t.Fatalf("loaded path: got %q want %q", loaded, envPath)
+	if !loaded {
+		t.Fatalf("loaded should be true when .env exists at %q", envPath)
+	}
+	if path != envPath {
+		t.Fatalf("path: got %q want %q", path, envPath)
 	}
 	if got := envValue(env, secrets.KeyParamifyUploadAPIToken); got != "from-dotenv" {
 		t.Fatalf("paramify token: got %q", got)
@@ -44,7 +47,7 @@ func TestBuildBaseEnvProcessEnvWinsOverDotEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env, _, err := buildBaseEnv([]string{"AWS_PROFILE=from-shell"}, "", repo, true)
+	env, _, _, err := buildBaseEnv([]string{"AWS_PROFILE=from-shell"}, "", repo, true)
 	if err != nil {
 		t.Fatalf("buildBaseEnv error: %v", err)
 	}
@@ -57,12 +60,16 @@ func TestBuildBaseEnvProcessEnvWinsOverDotEnv(t *testing.T) {
 }
 
 func TestBuildBaseEnvSkipsMissingAutoDotEnv(t *testing.T) {
-	env, loaded, err := buildBaseEnv([]string{"PATH=/usr/bin"}, "", t.TempDir(), true)
+	repo := t.TempDir()
+	env, path, loaded, err := buildBaseEnv([]string{"PATH=/usr/bin"}, "", repo, true)
 	if err != nil {
 		t.Fatalf("buildBaseEnv error: %v", err)
 	}
-	if loaded != "" {
-		t.Fatalf("unexpected loaded env path %q", loaded)
+	if loaded {
+		t.Fatalf("loaded should be false when no .env exists at %q", path)
+	}
+	if path == "" {
+		t.Fatalf("path should still be reported (so the UI can tell the user where to put .env), got empty")
 	}
 	if got := envValue(env, "PATH"); got != "/usr/bin" {
 		t.Fatalf("base env not preserved, got %q", got)

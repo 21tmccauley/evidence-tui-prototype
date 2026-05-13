@@ -490,11 +490,9 @@ func (m RunModel) View() string {
 	}
 
 	header := components.RenderHeader(components.HeaderProps{
-		Width:   width,
-		Crumb:   "running",
-		Profile: m.profile,
-		Region:  "us-east-1",
-		Now:     m.now,
+		Width: width,
+		Crumb: "running",
+		Now:   m.now,
 		StatusDot: func() string {
 			if m.finished {
 				if failed > 0 {

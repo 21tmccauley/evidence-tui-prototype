@@ -160,11 +160,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.sec.Init()
 
 	case screens.SelectedProfileMsg:
-		m.profile = msg.Profile.Name
-		m.region = msg.Profile.Region
-		if configurable, ok := m.runner.(runner.ProfileConfigurer); ok {
-			configurable.ConfigureProfile(msg.Profile.Name, msg.Profile.Region)
-		}
 		m.sel = screens.NewSelectWithOptions(m.keys, m.profile, screens.SelectOptions{
 			Fetchers: m.fetchers,
 		}).Resize(m.width, m.height)

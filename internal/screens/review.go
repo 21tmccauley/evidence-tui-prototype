@@ -240,11 +240,9 @@ func (m ReviewModel) View() string {
 	footer := components.RenderFooter(width, hints)
 
 	header := components.RenderHeader(components.HeaderProps{
-		Width:   width,
-		Crumb:   "review",
-		Profile: m.profile,
-		Region:  "us-east-1",
-		Now:     time.Now(),
+		Width: width,
+		Crumb: "review",
+		Now:   time.Now(),
 	})
 
 	counts := map[mock.RunStatus]int{}
