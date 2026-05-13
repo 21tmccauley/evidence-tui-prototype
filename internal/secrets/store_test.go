@@ -35,6 +35,58 @@ func TestBuildEnvironInjectsSecrets(t *testing.T) {
 	}
 }
 
+func TestMergeEnvValuesPreservesProcessEnvPrecedence(t *testing.T) {
+	base := []string{
+		"PATH=/usr/bin",
+		KeyParamifyUploadAPIToken + "=from-shell",
+	}
+	env := MergeEnvValues(base, map[string]string{
+		KeyParamifyUploadAPIToken:           "from-dotenv",
+		"GITLAB_PROJECT_1_URL":              "https://gitlab.example.com",
+		"GITLAB_PROJECT_1_API_ACCESS_TOKEN": "glpat-test",
+	})
+
+	if !containsEnv(env, KeyParamifyUploadAPIToken, "from-shell") {
+		t.Fatalf("process env should win over dotenv, got %v", env)
+	}
+	if containsEnv(env, KeyParamifyUploadAPIToken, "from-dotenv") {
+		t.Fatalf("dotenv value should not override process env, got %v", env)
+	}
+	if !containsEnv(env, "GITLAB_PROJECT_1_URL", "https://gitlab.example.com") {
+		t.Fatalf("expected dynamic config from dotenv, got %v", env)
+	}
+}
+
+func TestBuildEnvironKeychainOverridesEnvFileFallback(t *testing.T) {
+	primary := NewMemory()
+	if err := primary.Set(KeyParamifyUploadAPIToken, "from-keychain"); err != nil {
+		t.Fatalf("set primary: %v", err)
+	}
+	base := []string{
+		KeyParamifyUploadAPIToken + "=from-dotenv",
+		"GITLAB_PROJECT_1_API_ACCESS_TOKEN=glpat-test",
+	}
+	store := Merged{
+		Primary:  primary,
+		Fallback: Env{Environ: base},
+		Writer:   primary,
+	}
+
+	env, err := BuildEnviron(base, store, RuntimeKeys())
+	if err != nil {
+		t.Fatalf("BuildEnviron error: %v", err)
+	}
+	if !containsEnv(env, KeyParamifyUploadAPIToken, "from-keychain") {
+		t.Fatalf("keychain should override env fallback, got %v", env)
+	}
+	if containsEnv(env, KeyParamifyUploadAPIToken, "from-dotenv") {
+		t.Fatalf("dotenv secret should be replaced by keychain value, got %v", env)
+	}
+	if !containsEnv(env, "GITLAB_PROJECT_1_API_ACCESS_TOKEN", "glpat-test") {
+		t.Fatalf("dynamic non-runtime config should remain in env, got %v", env)
+	}
+}
+
 func TestMergedReadPrimaryFallbackWriteTarget(t *testing.T) {
 	primary := NewMemory()
 	fallback := NewMemory()

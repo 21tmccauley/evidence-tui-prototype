@@ -26,10 +26,12 @@ func TestPythonUploader_ProcessEvidenceDir_InvokesParamifyPusher(t *testing.T) {
 
 	argvPath := filepath.Join(t.TempDir(), "argv.txt")
 	cwdPath := filepath.Join(t.TempDir(), "cwd.txt")
+	envPath := filepath.Join(t.TempDir(), "env.txt")
 	fakePython := filepath.Join(t.TempDir(), "fake-python")
 	fake := `#!/bin/sh
 printf '%s\n' "$@" > "$ARGV_CAPTURE"
 pwd > "$CWD_CAPTURE"
+printf '%s\n' "$PARAMIFY_UPLOAD_API_TOKEN|$PARAMIFY_API_BASE_URL" > "$ENV_CAPTURE"
 log=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--log-file" ]; then
@@ -71,9 +73,13 @@ JSON
 	u, err := NewPython(PythonConfig{
 		FetcherRepoRoot: repo,
 		Python:          fakePython,
+		BaseURL:         "https://api.paramify.test",
 		Environ: []string{
 			"ARGV_CAPTURE=" + argvPath,
 			"CWD_CAPTURE=" + cwdPath,
+			"ENV_CAPTURE=" + envPath,
+			"PARAMIFY_UPLOAD_API_TOKEN=token-from-env",
+			"PARAMIFY_API_BASE_URL=https://api.paramify.test",
 		},
 	})
 	if err != nil {
@@ -104,6 +110,8 @@ JSON
 		summaryPath,
 		"--log-file",
 		filepath.Join(runDir, "upload_log.json"),
+		"--base-url",
+		"https://api.paramify.test",
 	}
 	if strings.Join(argv, "\x00") != strings.Join(wantArgv, "\x00") {
 		t.Fatalf("argv:\ngot  %#v\nwant %#v", argv, wantArgv)
@@ -123,6 +131,14 @@ JSON
 	}
 	if gotCWD != wantCWD {
 		t.Fatalf("cwd: got %q want %q", gotCWD, wantCWD)
+	}
+
+	envBytes, err := os.ReadFile(envPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(envBytes)); got != "token-from-env|https://api.paramify.test" {
+		t.Fatalf("env: got %q", got)
 	}
 }
 

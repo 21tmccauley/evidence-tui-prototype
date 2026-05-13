@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -31,6 +32,7 @@ func main() {
 	outputRoot := flag.String("output-root", "", "explicit per-run evidence directory (overrides XDG default)")
 	fetcherParallel := flag.Int("fetcher-parallel", 1, "max fetcher subprocesses at once (default 1 avoids tmp-path races until scripts are isolated)")
 	secretsBackend := flag.String("secrets-backend", "merged", "secrets backend: merged|keychain|env")
+	envFile := flag.String("env-file", "", "dotenv file to load (live mode defaults to <fetcher-repo-root>/.env when present)")
 	flag.Parse()
 
 	if *catalogPath != "" {
@@ -52,11 +54,19 @@ func main() {
 	sessionLog.Logf("paramify-fetcher start demo=%t catalog=%q profile=%q region=%q output-root=%q fetcher-parallel=%d",
 		*demo, *catalogPath, *profile, *region, *outputRoot, *fetcherParallel)
 
-	secretStore, err := buildSecretsStore(*secretsBackend)
+	baseEnv, loadedEnvFile, err := buildBaseEnv(os.Environ(), *envFile, *repoRoot, !*demo)
+	if err != nil {
+		die(2, "env file error: %v", err)
+	}
+	if loadedEnvFile != "" {
+		sessionLog.Logf("env file loaded: %s", loadedEnvFile)
+	}
+
+	secretStore, err := buildSecretsStore(*secretsBackend, baseEnv)
 	if err != nil {
 		die(2, "secrets backend error: %v", err)
 	}
-	runtimeEnv, err := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+	runtimeEnv, err := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
 	if err != nil {
 		die(2, "secrets setup error: %v", err)
 	}
@@ -72,10 +82,10 @@ func main() {
 	} else {
 		var repoAbs string
 		r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv)
-		welcomeOpts = realWelcomeOptions(*profile, *region)
+		welcomeOpts = realWelcomeOptions(*profile, *region, baseEnv)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
 		paramifyFactory = func() (uploader.Uploader, error) {
-			env, err := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+			env, err := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
 			if err != nil {
 				return nil, err
 			}
@@ -106,37 +116,37 @@ func main() {
 	sessionLog.Logf("paramify-fetcher exit clean")
 }
 
-func realWelcomeOptions(profile, region string) screens.WelcomeOptions {
+func realWelcomeOptions(profile, region string, env []string) screens.WelcomeOptions {
 	return screens.WelcomeOptions{
-		Profiles:    loadWelcomeProfiles(profile, region),
+		Profiles:    loadWelcomeProfiles(profile, region, env),
 		Tools:       preflight.CheckTools([]string{"aws", "jq", "bash", "python3", "kubectl", "curl"}),
 		Credential:  &preflight.Service{Cache: preflightCachePath, Checker: runner.CLIAuthChecker{}},
 		InitialName: profile,
 	}
 }
 
-func loadWelcomeProfiles(profile, region string) []screens.Profile {
+func loadWelcomeProfiles(profile, region string, env []string) []screens.Profile {
 	awsProfiles, err := preflight.LoadAWSProfiles("")
 	profiles := make([]screens.Profile, 0, len(awsProfiles)+1)
 	for _, p := range awsProfiles {
 		profiles = append(profiles, screens.Profile{
 			Name:   p.Name,
-			Region: firstNonEmpty(p.Region, region, os.Getenv("AWS_DEFAULT_REGION"), os.Getenv("AWS_REGION"), "—"),
+			Region: firstNonEmpty(p.Region, region, envValue(env, "AWS_DEFAULT_REGION"), envValue(env, "AWS_REGION"), "—"),
 			Note:   p.Note,
 		})
 	}
 	if profile != "" && !hasProfile(profiles, profile) {
 		profiles = append([]screens.Profile{{
 			Name:   profile,
-			Region: firstNonEmpty(region, os.Getenv("AWS_DEFAULT_REGION"), os.Getenv("AWS_REGION"), "—"),
+			Region: firstNonEmpty(region, envValue(env, "AWS_DEFAULT_REGION"), envValue(env, "AWS_REGION"), "—"),
 			Note:   "from --profile",
 		}}, profiles...)
 	}
 	if len(profiles) == 0 || err != nil {
-		name := firstNonEmpty(profile, os.Getenv("AWS_PROFILE"), "default")
+		name := firstNonEmpty(profile, envValue(env, "AWS_PROFILE"), "default")
 		profiles = []screens.Profile{{
 			Name:   name,
-			Region: firstNonEmpty(region, os.Getenv("AWS_DEFAULT_REGION"), os.Getenv("AWS_REGION"), "—"),
+			Region: firstNonEmpty(region, envValue(env, "AWS_DEFAULT_REGION"), envValue(env, "AWS_REGION"), "—"),
 			Note:   "from environment/default",
 		}}
 	}
@@ -203,8 +213,8 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 	}), evidenceDir, repoAbs
 }
 
-func buildSecretsStore(backend string) (secrets.Store, error) {
-	envStore := secrets.Env{Environ: os.Environ()}
+func buildSecretsStore(backend string, env []string) (secrets.Store, error) {
+	envStore := secrets.Env{Environ: env}
 	keychainStore := secrets.Keychain{Service: secrets.DefaultKeychainService}
 	switch backend {
 	case "env":
@@ -222,11 +232,49 @@ func buildSecretsStore(backend string) (secrets.Store, error) {
 	}
 }
 
+func buildBaseEnv(base []string, envFile, repoRoot string, live bool) ([]string, string, error) {
+	out := append([]string(nil), base...)
+	path := strings.TrimSpace(envFile)
+	if path == "" && live && strings.TrimSpace(repoRoot) != "" {
+		path = filepath.Join(repoRoot, ".env")
+		if info, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return out, "", nil
+			}
+			return nil, "", err
+		} else if info.IsDir() {
+			return nil, "", fmt.Errorf("%q is a directory", path)
+		}
+	} else if path == "" {
+		return out, "", nil
+	}
+
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, "", err
+	}
+	merged, err := secrets.MergeEnvFile(out, abs)
+	if err != nil {
+		return nil, "", err
+	}
+	return merged, abs, nil
+}
+
 func firstEnvValue(env []string, key string) string {
 	prefix := key + "="
 	for _, entry := range env {
 		if len(entry) > len(prefix) && entry[:len(prefix)] == prefix {
 			return entry[len(prefix):]
+		}
+	}
+	return ""
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
 		}
 	}
 	return ""

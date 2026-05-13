@@ -208,7 +208,8 @@ evidence-tui-prototype/
     │   └── fixtures.go                  ← fake stdout used by the scripts
     ├── secrets/
     │   ├── store.go                     ← Store interface + key constants
-    │   ├── env.go                       ← read-only Store backed by os.Environ
+    │   ├── env.go                       ← read-only Store backed by base env
+    │   ├── dotenv.go                    ← .env merge helpers
     │   ├── keychain.go                  ← OS keychain Store (macOS Keychain etc.)
     │   ├── memory.go                    ← in-memory Store (tests)
     │   ├── merged.go                    ← Primary+Fallback (keychain → env)
@@ -952,9 +953,10 @@ Two fields worth calling out:
   the same on-disk pre-flight cache the Welcome screen wrote is reused
   during the run — no redundant `aws sts` calls per fetcher.
 - **`Environ`** is the explicit child-process environment. We don't pass
-  `os.Environ()` directly; we run it through `secrets.BuildEnviron(...)`
-  first so keychain-stored secrets land in the subprocess without ever
-  touching the parent process's environment. (See Part 10 for the
+  `os.Environ()` directly; `main.go` first merges the auto-detected
+  fetcher repo `.env` (without overriding exported shell values), then
+  runs that base env through `secrets.BuildEnviron(...)` so
+  keychain-stored secrets land in the subprocess. (See Part 10 for the
   Secrets package.)
 
 ### The lifecycle of one fetcher run
@@ -1487,7 +1489,7 @@ animation and that's it (the original "mock upload"). In live mode,
 
 ```go
 paramifyFactory = func() (uploader.Uploader, error) {
-    env, _ := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+    env, _ := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
     return uploader.NewPython(uploader.PythonConfig{
         FetcherRepoRoot: repoAbs,
         BaseURL:         firstEnvValue(env, secrets.KeyParamifyAPIBaseURL),
@@ -1525,10 +1527,12 @@ account for most of what changed when the prototype graduated from
 "demo with a hard-coded Python uploader stub" to "actually uploads
 evidence."
 
-### `internal/secrets` — keys without a config file
+### `internal/secrets` — keys with `.env` import
 
 Goal: let an operator set `PARAMIFY_UPLOAD_API_TOKEN`, `OKTA_API_TOKEN`,
-etc. from inside the TUI without writing them to disk in plaintext.
+etc. from inside the TUI without writing them to disk in plaintext, while
+still honoring an existing `evidence-fetchers/.env` as a read-only
+bootstrap source.
 
 ```go
 // internal/secrets/store.go
@@ -1546,8 +1550,9 @@ type Store interface {
 
 Three concrete implementations:
 
-- `secrets.Env` — read-only view of `os.Environ()`. Exists so the
-  `merged` backend can fall back to env vars without rewriting them.
+- `secrets.Env` — read-only view of the unified base environment
+  (`os.Environ()` plus an optional `.env`). Exists so the `merged`
+  backend can fall back to env vars without rewriting them.
 - `secrets.Keychain` — wraps the OS keychain (macOS Keychain, Linux
   Secret Service, Windows Credential Manager via `go-keyring`). Set,
   Delete, List all work. Read-side falls through to OS APIs.
@@ -1559,7 +1564,13 @@ Three concrete implementations:
 `secrets.BuildEnviron(parentEnv, store, keys)` returns a child-process
 environ slice with secret values overlaid. We use this to populate
 `Config.Environ` for the real runner so secrets reach the fetcher
-subprocess without touching the TUI's own `os.Environ`.
+subprocess without mutating the TUI's own `os.Environ`.
+
+`secrets.MergeEnvFile` / `MergeEnvValues` are intentionally broader than
+`ValidateKey`: they accept dynamic runtime config like
+`GITLAB_PROJECT_<N>_*`, `AWS_REGION_<N>_*`, and `CHECKOV_*`. Those values
+stay in the base child-process environment, while TUI-managed secret keys
+can still be overridden by keychain values.
 
 `secrets.ValidateKey` enforces an allowlist (defined in
 `requirements.go`). Trying to `Set` an unknown key returns an error —
@@ -1780,8 +1791,9 @@ func main() {
     sessionLog, _ := output.OpenSessionLog(runTS)
     defer sessionLog.Close()
 
-    secretStore, _ := buildSecretsStore(*secretsBackend)
-    runtimeEnv, _  := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+    baseEnv, _, _  := buildBaseEnv(os.Environ(), *envFile, *repoRoot, !*demo)
+    secretStore, _ := buildSecretsStore(*secretsBackend, baseEnv)
+    runtimeEnv, _  := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
 
     var (
         r               runner.Runner
@@ -1795,9 +1807,9 @@ func main() {
         var repoAbs string
         r, evidenceDir, repoAbs = buildRealRunner(*profile, *region, *repoRoot,
             *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv)
-        welcomeOpts = realWelcomeOptions(*profile, *region)   // profiles + tools + cred service
+        welcomeOpts = realWelcomeOptions(*profile, *region, baseEnv) // profiles + tools + cred service
         paramifyFactory = func() (uploader.Uploader, error) {
-            env, _ := secrets.BuildEnviron(os.Environ(), secretStore, secrets.RuntimeKeys())
+            env, _ := secrets.BuildEnviron(baseEnv, secretStore, secrets.RuntimeKeys())
             return uploader.NewPython(uploader.PythonConfig{
                 FetcherRepoRoot: repoAbs,
                 BaseURL:         firstEnvValue(env, secrets.KeyParamifyAPIBaseURL),

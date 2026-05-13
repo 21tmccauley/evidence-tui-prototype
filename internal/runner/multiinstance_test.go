@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/paramify/evidence-tui-prototype/internal/catalog"
+	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
 func TestParseMultiInstanceConfig(t *testing.T) {
@@ -51,6 +52,31 @@ func TestParseMultiInstanceConfig(t *testing.T) {
 	}
 	if region.Env["AWS_DEFAULT_REGION"] != "us-east-1" || region.Env["AWS_REGION"] != "us-east-1" {
 		t.Errorf("AWS region env missing: %#v", region.Env)
+	}
+}
+
+func TestParseMultiInstanceConfigFromMergedDotEnv(t *testing.T) {
+	env := secrets.MergeEnvValues([]string{"AWS_PROFILE=from-shell"}, map[string]string{
+		"GITLAB_PROJECT_1_URL":              "https://gitlab.example.com",
+		"GITLAB_PROJECT_1_API_ACCESS_TOKEN": "token-from-dotenv",
+		"GITLAB_PROJECT_1_ID":               "group/project",
+		"GITLAB_PROJECT_1_FETCHERS":         "gitlab_project_summary",
+		"AWS_REGION_1_REGION":               "us-gov-west-1",
+		"AWS_REGION_1_FETCHERS":             "s3_encryption_status",
+	})
+
+	cfg := ParseMultiInstanceConfig(env)
+	if got, want := len(cfg.GitLabProjects), 1; got != want {
+		t.Fatalf("gitlab projects: got %d want %d", got, want)
+	}
+	if got := cfg.GitLabProjects[0].Env["GITLAB_API_TOKEN"]; got != "token-from-dotenv" {
+		t.Fatalf("gitlab token from merged env: got %q", got)
+	}
+	if got, want := len(cfg.AWSRegions), 1; got != want {
+		t.Fatalf("aws regions: got %d want %d", got, want)
+	}
+	if got := cfg.AWSRegions[0].Env["AWS_PROFILE"]; got != "from-shell" {
+		t.Fatalf("aws profile should come from merged env base, got %q", got)
 	}
 }
 

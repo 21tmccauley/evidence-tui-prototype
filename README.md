@@ -29,6 +29,10 @@ that repo separate; this app only needs a path to it.
 go run . --demo=false --fetcher-repo-root ../evidence-fetchers
 ```
 
+If `../evidence-fetchers/.env` exists, live mode loads it automatically. Values
+already exported in your shell take precedence over `.env`; values saved in the
+TUI Secrets screen take precedence for supported secret keys.
+
 With a specific AWS profile and region:
 
 ```sh
@@ -48,7 +52,12 @@ From the Welcome screen, press `s` to open the Secrets screen and set keys.
 By default, the app stores values in OS keychain and injects them into fetcher
 subprocess environment at runtime.
 
-For headless/CI workflows, you can still export env vars before launch:
+For an existing `evidence-fetchers/.env`, no manual `source .env` step is needed
+in live mode. The app uses that file as a read-only fallback for both secrets
+and runtime config such as `GITLAB_PROJECT_<N>_*` and `AWS_REGION_<N>_*`.
+
+For headless/CI workflows, or to override `.env`, you can still export env vars
+before launch:
 
 ```sh
 export KNOWBE4_API_KEY="your-knowbe4-api-key"
@@ -105,10 +114,17 @@ Development-only override for the embedded
 Secrets backend selection: `merged` (default, keychain first with env fallback),
 `keychain`, or `env`.
 
+`--env-file`
+
+Optional dotenv file to load. In live mode, this defaults to
+`<fetcher-repo-root>/.env` when that file exists. Use this flag to point at a
+different file, or omit it to use auto-detection.
+
 ## Uploading To Paramify
 
 Review upload uses `PARAMIFY_UPLOAD_API_TOKEN` from the Secrets screen or
-environment. Optional API override:
+environment, including an auto-loaded fetcher repo `.env`. Optional API
+override:
 
 ```sh
 export PARAMIFY_API_BASE_URL="https://app.paramify.com/api/v0"
