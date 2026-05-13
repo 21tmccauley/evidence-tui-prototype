@@ -26,7 +26,7 @@ func main() {
 	catalogPath := flag.String("catalog", "", "override the embedded evidence_fetchers_catalog.json (development)")
 	profile := flag.String("profile", "", "AWS profile passed as a positional arg to legacy .sh fetchers")
 	region := flag.String("region", "", "AWS region passed as a positional arg to legacy .sh fetchers")
-	repoRoot := flag.String("fetcher-repo-root", "", "path to the evidence-fetchers checkout (real runner)")
+	repoRoot := flag.String("fetcher-repo-root", "", "path to the evidence-fetchers checkout (real runner; auto-detects ../evidence-fetchers when empty)")
 	outputRoot := flag.String("output-root", "", "explicit per-run evidence directory (overrides XDG default)")
 	fetcherParallel := flag.Int("fetcher-parallel", 1, "max fetcher subprocesses at once (default 1 avoids tmp-path races until scripts are isolated)")
 	envFile := flag.String("env-file", "", "dotenv file to load (live mode defaults to <fetcher-repo-root>/.env when present)")
@@ -51,13 +51,30 @@ func main() {
 	sessionLog.Logf("paramify-fetcher start demo=%t catalog=%q profile=%q region=%q output-root=%q fetcher-parallel=%d",
 		*demo, *catalogPath, *profile, *region, *outputRoot, *fetcherParallel)
 
+	if *repoRoot == "" {
+		if sibling := siblingFetcherRepo(); sibling != "" {
+			*repoRoot = sibling
+			sessionLog.Logf("auto-detected fetcher repo at sibling: %s", sibling)
+		}
+	}
+
 	baseEnv, envFilePath, envFileLoaded, err := buildBaseEnv(os.Environ(), *envFile, *repoRoot, !*demo)
 	if err != nil {
 		die(2, "env file error: %v", err)
 	}
+	envExamplePath := ""
+	if envFilePath != "" && !envFileLoaded {
+		// Check for a sibling .env.example so the UI can suggest the copy.
+		candidate := envFilePath + ".example"
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			envExamplePath = candidate
+		}
+	}
 	switch {
 	case envFileLoaded:
 		sessionLog.Logf("env file loaded: %s", envFilePath)
+	case envFilePath != "" && envExamplePath != "":
+		sessionLog.Logf("env file %s not found; %s exists — copy it to set values", envFilePath, envExamplePath)
 	case envFilePath != "":
 		sessionLog.Logf("env file expected at %s but not found; continuing with process environment only", envFilePath)
 	}
@@ -86,9 +103,10 @@ func main() {
 		var unifiedScripts []catalog.Script
 		r, evidenceDir, repoAbs, unifiedScripts, plats = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv, sessionLog)
 		welcomeOpts = screens.WelcomeOptions{
-			Platforms:     plats,
-			EnvFilePath:   envFilePath,
-			EnvFileLoaded: envFileLoaded,
+			Platforms:      plats,
+			EnvFilePath:    envFilePath,
+			EnvFileLoaded:  envFileLoaded,
+			EnvExamplePath: envExamplePath,
 		}
 		fetchersForUI = mock.FetchersFromScripts(unifiedScripts)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
@@ -145,7 +163,7 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 		die(2, "--fetcher-repo-root %q is not a directory", repoAbs)
 	}
 
-	catScripts, err := loadCatalogScripts(catalogPath)
+	cat, catScripts, err := loadCatalog(catalogPath)
 	if err != nil {
 		die(2, "catalog error: %v", err)
 	}
@@ -156,6 +174,8 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 	} else {
 		sessionLog.Logf("platform discovery: %d platforms found", len(plats))
 	}
+	plats = platforms.EnrichFromRootEnvExample(plats, repoAbs)
+	plats = platforms.EnrichFromCatalog(plats, cat)
 	scripts := platforms.Join(repoAbs, plats, catScripts)
 	byID := make(map[runner.FetcherID]catalog.Script, len(scripts))
 	for _, s := range scripts {
@@ -174,6 +194,23 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 		Environ:                env,
 		MaxParallel:            fetcherParallel,
 	}), evidenceDir, repoAbs, scripts, plats
+}
+
+// siblingFetcherRepo looks for an "evidence-fetchers" directory next to the
+// TUI's current working directory and returns its path if present. Lets
+// users run `go run . --demo=false` without --fetcher-repo-root when the
+// two repos are cloned side by side, which is the standard layout.
+func siblingFetcherRepo() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	candidate := filepath.Join(filepath.Dir(wd), "evidence-fetchers")
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return ""
+	}
+	return candidate
 }
 
 // buildBaseEnv returns (mergedEnv, expectedPath, loaded, err).
@@ -267,14 +304,14 @@ func resolveEvidenceDir(outputRootFlag, runTS string) string {
 	return dir
 }
 
-// loadCatalogScripts loads the embedded catalog or --catalog override (same resolution as mock.EnsureCatalog).
-func loadCatalogScripts(catalogPath string) ([]catalog.Script, error) {
+// loadCatalog loads the embedded catalog or --catalog override (same resolution
+// as mock.EnsureCatalog), returning both the parsed wrapper (for category
+// metadata) and the flat script list (for runner lookup).
+func loadCatalog(catalogPath string) (*catalog.Catalog, []catalog.Script, error) {
 	if catalogPath == "" {
-		_, scripts, err := catalog.LoadEmbedded()
-		return scripts, err
+		return catalog.LoadEmbedded()
 	}
-	_, scripts, err := catalog.LoadFile(catalogPath)
-	return scripts, err
+	return catalog.LoadFile(catalogPath)
 }
 
 func die(code int, format string, args ...any) {

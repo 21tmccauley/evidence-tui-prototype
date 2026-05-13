@@ -114,6 +114,13 @@ func Discover(repoRoot string) ([]Platform, error) {
 		if err != nil {
 			return nil, fmt.Errorf("platform %s: %w", e.Name(), err)
 		}
+		// A folder with no fetchers AND no declared env keys is almost
+		// certainly a helper directory (logos, common, etc.), not a real
+		// platform. Skip it. Per-platform manifests can override this by
+		// declaring env keys even with no scripts.
+		if len(p.Fetchers) == 0 && len(p.EnvKeys) == 0 {
+			continue
+		}
 		platforms = append(platforms, p)
 	}
 	sort.Slice(platforms, func(i, j int) bool { return platforms[i].ID < platforms[j].ID })
@@ -215,6 +222,23 @@ func readEnvExampleKeys(path string) ([]EnvKey, error) {
 // period so existing bash fetchers continue to surface in the TUI.
 var fetcherExtensions = []string{".py", ".sh"}
 
+// isHelperScript returns true for files that look like Python/shell helpers
+// rather than runnable fetchers. Universal conventions only — no platform
+// names baked in. Customers can hide other helpers by prefixing with _.
+func isHelperScript(name string) bool {
+	if name == "__init__.py" {
+		return true
+	}
+	// *_loader.py / *_loader.sh — the shipped fetcher repo's helper convention
+	// and a generic Python idiom for env/config loaders.
+	for _, ext := range fetcherExtensions {
+		if strings.HasSuffix(name, "_loader"+ext) {
+			return true
+		}
+	}
+	return false
+}
+
 func readFetchers(dir, platformID string) ([]Fetcher, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -231,6 +255,9 @@ func readFetchers(dir, platformID string) ([]Fetcher, error) {
 			continue
 		}
 		if strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if isHelperScript(name) {
 			continue
 		}
 		stem := strings.TrimSuffix(name, ext)

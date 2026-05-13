@@ -21,11 +21,12 @@ import (
 type WelcomeModel struct {
 	keys app.KeyMap
 
-	platforms     []platforms.Platform
-	envFilePath   string
-	envFileLoaded bool
-	platformCount int
-	fetcherCount  int
+	platforms      []platforms.Platform
+	envFilePath    string
+	envFileLoaded  bool
+	envExamplePath string
+	platformCount  int
+	fetcherCount   int
 
 	width  int
 	height int
@@ -42,11 +43,14 @@ func NewWelcome(keys app.KeyMap) WelcomeModel {
 // summary; EnvFilePath is the .env file the user is told to edit for
 // secrets. EnvFileLoaded distinguishes "file present and merged" from
 // "we looked here but found nothing" so the summary can tell the user
-// where to put their .env.
+// where to put their .env. EnvExamplePath is set when a sibling
+// .env.example exists alongside the missing .env, so the hint can suggest
+// the exact `cp` command.
 type WelcomeOptions struct {
-	Platforms     []platforms.Platform
-	EnvFilePath   string
-	EnvFileLoaded bool
+	Platforms      []platforms.Platform
+	EnvFilePath    string
+	EnvFileLoaded  bool
+	EnvExamplePath string
 }
 
 func NewWelcomeWithOptions(keys app.KeyMap, opts WelcomeOptions) WelcomeModel {
@@ -55,13 +59,14 @@ func NewWelcomeWithOptions(keys app.KeyMap, opts WelcomeOptions) WelcomeModel {
 		fetcherCount += len(p.Fetchers)
 	}
 	return WelcomeModel{
-		keys:          keys,
-		platforms:     opts.Platforms,
-		envFilePath:   strings.TrimSpace(opts.EnvFilePath),
-		envFileLoaded: opts.EnvFileLoaded,
-		platformCount: len(opts.Platforms),
-		fetcherCount:  fetcherCount,
-		logoSheenCol:  -app.LogoSheenRadius,
+		keys:           keys,
+		platforms:      opts.Platforms,
+		envFilePath:    strings.TrimSpace(opts.EnvFilePath),
+		envFileLoaded:  opts.EnvFileLoaded,
+		envExamplePath: strings.TrimSpace(opts.EnvExamplePath),
+		platformCount:  len(opts.Platforms),
+		fetcherCount:   fetcherCount,
+		logoSheenCol:   -app.LogoSheenRadius,
 	}
 }
 
@@ -191,9 +196,13 @@ func (m WelcomeModel) renderSummary(width int) string {
 	}
 	if m.envFilePath != "" {
 		var value string
-		if m.envFileLoaded {
+		switch {
+		case m.envFileLoaded:
 			value = app.StyleInfo.Render(m.envFilePath)
-		} else {
+		case m.envExamplePath != "":
+			value = app.StyleInfo.Render(m.envFilePath) + "  " +
+				app.StyleWarning.Render("(not found)")
+		default:
 			value = app.StyleInfo.Render(m.envFilePath) + "  " +
 				app.StyleWarning.Render("(not found — create this file to set values)")
 		}
@@ -201,6 +210,12 @@ func (m WelcomeModel) renderSummary(width int) string {
 			padRight(app.StyleSubtle.Render("env file"), 16),
 			value,
 		))
+		if !m.envFileLoaded && m.envExamplePath != "" {
+			rows = append(rows, fmt.Sprintf("%s  %s",
+				padRight(app.StyleSubtle.Render(""), 16),
+				app.StyleAccent.Render("run: cp "+m.envExamplePath+" "+m.envFilePath),
+			))
+		}
 	}
 	block := strings.Join(rows, "\n")
 	boxed := app.StyleBorder.Padding(0, 2).Render(block)
