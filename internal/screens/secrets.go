@@ -13,6 +13,7 @@ import (
 	"github.com/paramify/evidence-tui-prototype/internal/app"
 	"github.com/paramify/evidence-tui-prototype/internal/components"
 	"github.com/paramify/evidence-tui-prototype/internal/mock"
+	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
@@ -22,10 +23,20 @@ type SecretsDoneMsg struct{}
 //
 // FocusKeys collapses the screen into a single-section view of just those
 // keys (used by Review when the upload token is missing). When empty, the
-// screen renders the catalog-source two-pane layout.
+// screen renders the platform-source two-pane layout.
+//
+// Platforms, when non-nil, drives the source list from filesystem-discovered
+// platforms instead of the legacy hardcoded sourceSecretsTable. Each
+// platform.EnvKeys becomes one source entry under the platform's display
+// name, with the Paramify pseudo-source still pinned first.
+//
+// EnvFilePath, when non-empty, surfaces a hint pointing the user at the .env
+// file they should edit to change values.
 type SecretsOptions struct {
-	FocusKeys []string
-	Prompt    string
+	FocusKeys   []string
+	Prompt      string
+	Platforms   []platforms.Platform
+	EnvFilePath string
 }
 
 type secretsLoadedMsg struct {
@@ -52,11 +63,15 @@ type SecretsModel struct {
 	store  secrets.Store
 	prompt string
 
-	// sources is the left-pane list. In default mode it's the paramify
-	// pseudo-source plus every catalog source from mock.Sources(); in
-	// focused mode it's a single synthesized "focused" entry.
+	// sources is the left-pane list. Either filesystem-discovered platforms
+	// (when Platforms was supplied) or, falling back, the catalog-source
+	// table; in focused mode it's a single synthesized "focused" entry.
 	sources []secrets.SourceSecrets
 	focused bool // true iff constructed with FocusKeys
+
+	// envFilePath is the .env file the user is told to edit. Empty if no
+	// dotenv file is in use.
+	envFilePath string
 
 	srcIdx int
 	keyIdx int
@@ -86,22 +101,23 @@ func NewSecretsWithOptions(keys app.KeyMap, store secrets.Store, opts SecretsOpt
 	ti.EchoCharacter = '•'
 	ti.Placeholder = "paste secret value"
 
-	sources, focused := buildSecretsSources(opts.FocusKeys)
+	sources, focused := buildSecretsSources(opts.FocusKeys, opts.Platforms)
 	pane := secretsPaneSources
 	if focused {
 		pane = secretsPaneKeys
 	}
 
 	return SecretsModel{
-		keys:    keys,
-		store:   store,
-		sources: sources,
-		focused: focused,
-		pane:    pane,
-		present: map[string]bool{},
-		source:  map[string]string{},
-		input:   ti,
-		prompt:  strings.TrimSpace(opts.Prompt),
+		keys:        keys,
+		store:       store,
+		sources:     sources,
+		focused:     focused,
+		pane:        pane,
+		envFilePath: strings.TrimSpace(opts.EnvFilePath),
+		present:     map[string]bool{},
+		source:      map[string]string{},
+		input:       ti,
+		prompt:      strings.TrimSpace(opts.Prompt),
 	}
 }
 
@@ -283,7 +299,11 @@ func (m SecretsModel) View() string {
 	subtitle := "values are masked and stored via the configured backend"
 	readOnly := m.store == nil || !m.store.Writable()
 	if readOnly && m.store != nil {
-		subtitle = "read-only backend (" + m.store.Source() + ") — values must be set in the shell environment"
+		if m.envFilePath != "" {
+			subtitle = "read-only — edit " + m.envFilePath + " to change values"
+		} else {
+			subtitle = "read-only backend (" + m.store.Source() + ") — values must be set in the shell environment"
+		}
 	}
 
 	body := m.renderBody(width)
@@ -543,13 +563,14 @@ func (m SecretsModel) saveCmd(key, value string) tea.Cmd {
 // indicating whether the screen is in single-section "focused" mode (i.e.
 // constructed via SecretsOptions.FocusKeys, used by Review's Paramify upload detour).
 //
-// Default mode: paramify pseudo-source pinned first, then every catalog
-// source from mock.Sources() in catalog order. Sources without a table
-// entry get a synthesized info row so the screen never lies about coverage.
+// When plats is non-nil, each platform becomes one source entry built from
+// its declared EnvKeys (.env.example or platform.json); the Paramify
+// pseudo-source is still pinned first. When plats is nil, the legacy
+// hardcoded source table is used (kept until chunk 5 deletes it).
 //
 // Focused mode: a single synthesized SourceSecrets entry containing only
 // the requested keys, in the order given.
-func buildSecretsSources(focusKeys []string) ([]secrets.SourceSecrets, bool) {
+func buildSecretsSources(focusKeys []string, plats []platforms.Platform) ([]secrets.SourceSecrets, bool) {
 	if len(focusKeys) > 0 {
 		keys := []secrets.ServiceSecret{}
 		seen := map[string]bool{}
@@ -580,6 +601,41 @@ func buildSecretsSources(focusKeys []string) ([]secrets.SourceSecrets, bool) {
 
 	out := []secrets.SourceSecrets{secrets.SecretsForSource(secrets.SourceParamify)}
 	added := map[string]bool{secrets.SourceParamify: true}
+
+	if len(plats) > 0 {
+		// Filesystem-driven path: each platform contributes one source entry
+		// derived from its declared env keys. No editorial descriptions —
+		// the TUI does not editorialize what a secret is "for".
+		for _, p := range plats {
+			if added[p.ID] {
+				continue
+			}
+			added[p.ID] = true
+			keys := make([]secrets.ServiceSecret, 0, len(p.EnvKeys))
+			for _, k := range p.EnvKeys {
+				if strings.TrimSpace(k.Name) == "" {
+					continue
+				}
+				keys = append(keys, secrets.ServiceSecret{
+					ServiceID:   p.ID,
+					ServiceName: p.DisplayName,
+					Key:         k.Name,
+					Optional:    k.Optional,
+				})
+			}
+			note := ""
+			if len(keys) == 0 {
+				note = "no env keys declared for this platform"
+			}
+			out = append(out, secrets.SourceSecrets{
+				Source: p.ID,
+				Label:  p.DisplayName,
+				Note:   note,
+				Keys:   keys,
+			})
+		}
+		return out, false
+	}
 
 	for _, src := range mock.Sources(mock.Catalog()) {
 		if added[src] {

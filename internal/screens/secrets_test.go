@@ -8,6 +8,7 @@ import (
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
 	"github.com/paramify/evidence-tui-prototype/internal/mock"
+	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
 )
 
@@ -64,6 +65,59 @@ func TestSecretsScreen_FocusedModeShowsProvenance(t *testing.T) {
 
 	if v := m.View(); !strings.Contains(v, "set (memory)") {
 		t.Fatalf("expected provenance 'set (memory)' in view, got:\n%s", v)
+	}
+}
+
+// When Platforms is provided, the Secrets screen builds its source list
+// from filesystem discovery (not the legacy catalog/source table). Each
+// platform shows up with its declared env keys; no editorial description
+// renders. This is the path live mode takes — a customer dropping a new
+// fetchers/<platform>/.env.example must surface here with zero Go changes.
+func TestSecretsScreen_PlatformDrivenSourcesAndEnvHint(t *testing.T) {
+	store := secrets.Env{Environ: []string{"OKTA_API_TOKEN=from-env"}}
+	plats := []platforms.Platform{
+		{
+			ID:          "okta",
+			DisplayName: "Okta",
+			EnvKeys: []platforms.EnvKey{
+				{Name: "OKTA_API_TOKEN"},
+				{Name: "OKTA_ORG_URL"},
+			},
+		},
+		{
+			ID:          "acme_widget",
+			DisplayName: "Acme Widget",
+			EnvKeys:     []platforms.EnvKey{{Name: "ACME_KEY"}},
+		},
+	}
+	m := NewSecretsWithOptions(app.DefaultKeys(), store, SecretsOptions{
+		Platforms:   plats,
+		EnvFilePath: "/abs/path/to/.env",
+	})
+	m = m.Resize(140, 40)
+	if cmd := m.Init(); cmd != nil {
+		if msg := cmd(); msg != nil {
+			m, _ = m.Update(msg)
+		}
+	}
+
+	v := m.View()
+	if !strings.Contains(v, "Okta") {
+		t.Fatalf("expected 'Okta' platform in view, got:\n%s", v)
+	}
+	if !strings.Contains(v, "Acme Widget") {
+		t.Fatalf("expected 'Acme Widget' platform (filesystem-discovered) in view, got:\n%s", v)
+	}
+	if !strings.Contains(v, "Paramify") {
+		t.Fatalf("Paramify pseudo-source must still pin first, got:\n%s", v)
+	}
+	if !strings.Contains(v, "/abs/path/to/.env") {
+		t.Fatalf("expected EnvFilePath hint in subtitle, got:\n%s", v)
+	}
+	// Sanity: catalog-driven labels that aren't filesystem-discovered must
+	// not leak in (KnowBe4, Rippling, …). We assert one explicitly.
+	if strings.Contains(v, "KnowBe4") {
+		t.Fatalf("catalog-driven sources must not appear when Platforms is set; got KnowBe4 in view:\n%s", v)
 	}
 }
 

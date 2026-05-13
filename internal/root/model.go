@@ -10,6 +10,7 @@ import (
 
 	"github.com/paramify/evidence-tui-prototype/internal/app"
 	"github.com/paramify/evidence-tui-prototype/internal/mock"
+	"github.com/paramify/evidence-tui-prototype/internal/platforms"
 	"github.com/paramify/evidence-tui-prototype/internal/runner"
 	"github.com/paramify/evidence-tui-prototype/internal/screens"
 	"github.com/paramify/evidence-tui-prototype/internal/secrets"
@@ -39,6 +40,8 @@ type Model struct {
 	paramifyFactory screens.ParamifyFactory
 	secrets         secrets.Store
 	fetchers        []mock.Fetcher
+	plats           []platforms.Platform
+	envFilePath     string
 	pendingReview   bool
 	secretBack      Screen
 
@@ -72,6 +75,15 @@ type Options struct {
 	// mock.Catalog(). In live mode this is populated from filesystem
 	// discovery (internal/platforms).
 	Fetchers []mock.Fetcher
+
+	// Platforms is the filesystem-discovered platform list used to drive
+	// the Secrets screen grouping and the env-key declarations shown there.
+	// When nil, Secrets falls back to the legacy source table.
+	Platforms []platforms.Platform
+
+	// EnvFilePath is the absolute path of the .env file in use, shown in
+	// the Secrets screen as the hint for where to edit values.
+	EnvFilePath string
 }
 
 func NewWithOptions(r runner.Runner, opts Options) Model {
@@ -86,8 +98,13 @@ func NewWithOptions(r runner.Runner, opts Options) Model {
 		paramifyFactory: opts.ParamifyFactory,
 		secrets:         opts.Secrets,
 		fetchers:        opts.Fetchers,
-		sec:             screens.NewSecrets(keys, opts.Secrets),
-		secretBack:      ScreenWelcome,
+		plats:           opts.Platforms,
+		envFilePath:     opts.EnvFilePath,
+		sec: screens.NewSecretsWithOptions(keys, opts.Secrets, screens.SecretsOptions{
+			Platforms:   opts.Platforms,
+			EnvFilePath: opts.EnvFilePath,
+		}),
+		secretBack: ScreenWelcome,
 	}
 }
 
@@ -135,7 +152,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.secretBack = m.screen
-		m.sec = screens.NewSecrets(m.keys, m.secrets).Resize(m.width, m.height)
+		m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
+			Platforms:   m.plats,
+			EnvFilePath: m.envFilePath,
+		}).Resize(m.width, m.height)
 		m.screen = ScreenSecrets
 		return m, m.sec.Init()
 
@@ -179,7 +199,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pendingReview = true
 		m.secretBack = ScreenReview
 		m.sec = screens.NewSecretsWithOptions(m.keys, m.secrets, screens.SecretsOptions{
-			FocusKeys: []string{secrets.KeyParamifyUploadAPIToken, secrets.KeyParamifyAPIBaseURL},
+			FocusKeys:   []string{secrets.KeyParamifyUploadAPIToken, secrets.KeyParamifyAPIBaseURL},
+			EnvFilePath: m.envFilePath,
 			Prompt: "Paramify upload needs PARAMIFY_UPLOAD_API_TOKEN before it can run.\n" +
 				"Set PARAMIFY_API_BASE_URL if your Paramify API is not at the default host.",
 		}).Resize(m.width, m.height)

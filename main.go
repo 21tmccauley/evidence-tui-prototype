@@ -32,7 +32,7 @@ func main() {
 	repoRoot := flag.String("fetcher-repo-root", "", "path to the evidence-fetchers checkout (real runner)")
 	outputRoot := flag.String("output-root", "", "explicit per-run evidence directory (overrides XDG default)")
 	fetcherParallel := flag.Int("fetcher-parallel", 1, "max fetcher subprocesses at once (default 1 avoids tmp-path races until scripts are isolated)")
-	secretsBackend := flag.String("secrets-backend", "merged", "secrets backend: merged|keychain|env")
+	secretsBackend := flag.String("secrets-backend", "env", "secrets backend: env|merged|keychain (env is .env-backed and read-only)")
 	envFile := flag.String("env-file", "", "dotenv file to load (live mode defaults to <fetcher-repo-root>/.env when present)")
 	flag.Parse()
 
@@ -78,13 +78,14 @@ func main() {
 		evidenceDir     string
 		paramifyFactory screens.ParamifyFactory
 		fetchersForUI   []mock.Fetcher
+		plats           []platforms.Platform
 	)
 	if *demo {
 		r = mock.NewMockRunner(mock.Catalog())
 	} else {
 		var repoAbs string
 		var unifiedScripts []catalog.Script
-		r, evidenceDir, repoAbs, unifiedScripts = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv, sessionLog)
+		r, evidenceDir, repoAbs, unifiedScripts, plats = buildRealRunner(*profile, *region, *repoRoot, *catalogPath, *outputRoot, *fetcherParallel, runTS, runtimeEnv, sessionLog)
 		welcomeOpts = realWelcomeOptions(*profile, *region, baseEnv)
 		fetchersForUI = mock.FetchersFromScripts(unifiedScripts)
 		sessionLog.Logf("evidence directory: %s", evidenceDir)
@@ -108,6 +109,8 @@ func main() {
 		ParamifyFactory: paramifyFactory,
 		Secrets:         secretStore,
 		Fetchers:        fetchersForUI,
+		Platforms:       plats,
+		EnvFilePath:     loadedEnvFile,
 	})
 
 	p := tea.NewProgram(rootModel, tea.WithAltScreen(), tea.WithMouseCellMotion())
@@ -178,9 +181,10 @@ func firstNonEmpty(values ...string) string {
 }
 
 // buildRealRunner validates flags, builds the real runner, and returns
-// runner, evidence directory, absolute fetcher repo root, and the unified
-// script list (filesystem discovery merged with the catalog).
-func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag string, fetcherParallel int, runTS string, env []string, sessionLog *output.SessionLog) (runner.Runner, string, string, []catalog.Script) {
+// runner, evidence directory, absolute fetcher repo root, the unified
+// script list (filesystem discovery merged with the catalog), and the
+// discovered platforms.
+func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag string, fetcherParallel int, runTS string, env []string, sessionLog *output.SessionLog) (runner.Runner, string, string, []catalog.Script, []platforms.Platform) {
 	if repoRoot == "" {
 		die(2, "--fetcher-repo-root is required when --demo=false")
 	}
@@ -225,7 +229,7 @@ func buildRealRunner(profile, region, repoRoot, catalogPath, outputRootFlag stri
 		}},
 		Environ:     env,
 		MaxParallel: fetcherParallel,
-	}), evidenceDir, repoAbs, scripts
+	}), evidenceDir, repoAbs, scripts, plats
 }
 
 func buildSecretsStore(backend string, env []string) (secrets.Store, error) {
